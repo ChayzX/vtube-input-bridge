@@ -1,0 +1,22 @@
+VTube Input Bridge - Stream PC
+=============================
+This is for a fresh stream-PC setup or an arranged offline upgrade.
+Canada already has a working receiver. The game-mouse fix requires only the
+gaming-PC package; do not install this stream-PC package for that update.
+
+1. Enable VTube Studio's Public API on port 8001.
+2. Extract this ZIP. In an administrator PowerShell session under the intended
+   stream Windows account, run:
+   powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Install-StreamPC.ps1 -GamingPC 10.0.0.112
+   Replace the example IP with the gaming PC's LAN IPv4 address.
+   The installer refuses to run while a bridge process is running.
+3. Approve Game Input Relay by ChayzX in VTube Studio when prompted.
+4. Run C:\ProgramData\VTubeInputRelay\VTubeInputBridge.exe --receiver in the
+   signed-in stream user's session. It will start at sign-in for the account
+   that ran the installer. Closing the window keeps it in the tray.
+5. Verify Receiving input and an increasing packet count. Check real movement,
+   keys, and clicks on the model. Test reconnect and startup while offline.
+
+The receiver runs as a SYSTEM startup task. UDP 5055 is permitted on the
+Private network profile only from the supplied gaming-PC IP. VTube Studio's
+API remains on loopback. No Tailscale is needed when both PCs share the LAN.

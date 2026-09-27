@@ -13,14 +13,18 @@ internal static class WindowsInputCapture
 
     private static bool Key(int code) { return GetAsyncKeyState(code) < 0; }
 
-    public static InputState Sample(InputState previous)
+    public static InputState Sample(InputState previous, bool readCursor = true)
     {
-        Point point;
-        int width = GetSystemMetrics(0), height = GetSystemMetrics(1);
-        if (width <= 1 || height <= 1 || !GetCursorPos(out point))
-            throw new InvalidOperationException("Cannot read the Windows cursor or display size.");
-        float x = Math.Max(-1f, Math.Min(1f, (float)point.X / (width - 1) * 2f - 1f));
-        float y = Math.Max(-1f, Math.Min(1f, (float)point.Y / (height - 1) * 2f - 1f));
+        float x = 0, y = 0;
+        if (readCursor)
+        {
+            Point point;
+            int width = GetSystemMetrics(0), height = GetSystemMetrics(1);
+            if (width <= 1 || height <= 1 || !GetCursorPos(out point))
+                throw new InvalidOperationException("Cannot read the Windows cursor or display size.");
+            x = Math.Max(-1f, Math.Min(1f, (float)point.X / (width - 1) * 2f - 1f));
+            y = Math.Max(-1f, Math.Min(1f, (float)point.Y / (height - 1) * 2f - 1f));
+        }
         var pressed = new List<int>();
         for (int code = 0x41; code <= 0x5A; code++) if (Key(code)) pressed.Add(code);
         for (int code = 0x30; code <= 0x39; code++) if (Key(code)) pressed.Add(code);

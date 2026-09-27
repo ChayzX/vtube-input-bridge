@@ -1,0 +1,26 @@
+name: Build and test
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test --workspace --locked
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Compile, test, and package both PCs
+        shell: powershell
+        run: .\scripts\build-windows.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: VTubeInputBridge-Windows
+          path: build/*.zip

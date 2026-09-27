@@ -1,16 +1,15 @@
-/target
-# Binaries
-/target
-**/target
-
-# Config files that might contain secrets
-*.yaml
-*.yml
-*.json
-!example.*
-!*/example.*
-
-# Logs
+**/target/
+/build/
+*.exe
+*.dll
+*.pdb
+*.zip
+*.bak
+# Local VTube Studio authentication and runtime data
+vts-token.txt
+status.json
+destination.txt
+mouse-mode.txt
 *.log
 
 # IDE

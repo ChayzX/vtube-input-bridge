@@ -2,6 +2,20 @@
 
 A Windows app and a background receiver bridge keyboard and mouse state from a gaming PC to VTube Studio on the stream PC. The gaming app transmits UDP on port 5055. The receiver creates 13 custom VTube Studio input parameters and updates them while packets arrive. The same app shows receiver status on the stream PC. Closing either app window leaves it in the system tray.
 
+## Repository layout
+
+- `windows_app/`: Pantry's windowed sender, raw mouse capture, tests, and the tray status UI used on both PCs.
+- `vts_input_relay/`: Canada's background UDP-to-VTube-Studio receiver.
+- `shared/`: version 1 packet types; `simulator/`: development packet generator.
+- `gaming_input_relay/`: legacy console sender (desktop cursor capture only).
+- `scripts/`: build/test scripts; `docs/`: setup and verification instructions.
+
+## Mouse tracking during gameplay
+
+The sender defaults to desktop cursor position. Games can hold that cursor still while reading physical mouse movement separately. Enable **Game mouse mode (for locked cursor)** in the gaming-PC app for those games. It receives background Windows Raw Input, accumulates relative movement between packets, and converts it to bounded mouse-position values. Motion returns toward center while idle; sensitivity is adjustable from 0.1 to 5. The raw movement event counter confirms that movement is arriving, even with the app in the tray. Switch the mode off when you want the model to follow a visible desktop cursor. Settings persist under `%APPDATA%\VTubeInputBridge\mouse-mode.txt`.
+
+The packet format, receiver, and model mappings are unchanged by game mode. **Install this update on Pantry only; Canada does not need an update or restart.** The sender observes mouse input without moving the cursor or sending input to the game. Automated movement/UDP tests and a Windows registration smoke test cover the implementation; a physical in-match test is required before calling game compatibility verified. See [verification instructions](docs/Gameplay-Mouse-Verification.md).
+
 ## Setup
 
 1. Turn on **Start API** in VTube Studio on the stream PC. The API normally uses `ws://127.0.0.1:8001`.
@@ -18,10 +32,12 @@ The legacy console sender remains available as `gaming_input_relay.exe` with `--
 
 ## Build and test
 
-Run `cargo test` from this directory. Build the receiver with `cargo build --release --target x86_64-pc-windows-gnu -p vts_input_relay` from a Rust toolchain with the target and MinGW linker installed. Build the app on Windows with the .NET Framework C# compiler:
+On Windows, install a Rust toolchain with its native linker and run:
 
-```cmd
-C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe /target:winexe /win32icon:windows_app\bridge.ico /r:System.Web.Extensions.dll /r:System.Windows.Forms.dll /r:System.Drawing.dll /out:windows_app\VTubeInputBridge.exe windows_app\BridgeCore.cs windows_app\SenderRuntime.cs windows_app\WindowsInputCapture.cs windows_app\BridgeApp.cs
+```powershell
+.\scripts\build-windows.ps1
 ```
 
-The app core and UDP sender tests are `windows_app\BridgeCoreTests.cs` and `windows_app\SenderRuntimeTests.cs`.
+This tests and builds the app and receiver, then writes separate GamingPC and StreamPC ZIPs under `build/`. It does not install either package. Use `-SkipReceiver` to build only the app/GamingPC ZIP. The stream installer refuses to interrupt a running bridge. Instructions are included in each ZIP.
+
+On Linux, `cargo test --workspace --locked` tests the Rust workspace. With Mono and its WinForms/Web.Extensions assemblies installed, `bash scripts/test-mono.sh` runs the pure app and UDP tests and compiles the Windows app. Raw Input registration must be tested on Windows. The GitHub Actions Windows job runs that smoke test and uploads both packages. Binaries, local runtime files, and tokens are excluded from Git.

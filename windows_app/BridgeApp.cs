@@ -2,6 +2,7 @@ using System;
 using System.Diagnostics;
 using System.Drawing;
 using System.IO;
+using System.Globalization;
 using System.Reflection;
 using System.Windows.Forms;
 using Microsoft.Win32;
@@ -28,6 +29,13 @@ internal sealed class BridgeForm : Form
 {
     private readonly bool receiver;
     private readonly SenderRuntime sender;
+    private readonly MouseMotion mouse = new MouseMotion();
+    private readonly RawMouseInput rawMouse;
+    private string rawMouseError = "";
+    private long lastCaptureTicks;
+    private CheckBox gameMouse;
+    private NumericUpDown sensitivity;
+    private Label mouseInfo;
     private readonly NotifyIcon tray;
     private readonly Timer refresh;
     private readonly Label status;
@@ -50,9 +58,15 @@ internal sealed class BridgeForm : Form
     public BridgeForm(bool receiver, bool autoStart)
     {
         this.receiver = receiver;
-        if (!receiver) sender = new SenderRuntime(WindowsInputCapture.Sample);
+        if (!receiver)
+        {
+            try { rawMouse = new RawMouseInput(mouse); }
+            catch (Exception error) { rawMouseError = error.Message; }
+            LoadMouseSettings();
+            sender = new SenderRuntime(CaptureInput);
+        }
         Text = receiver ? "VTube Input Bridge — Stream PC" : "VTube Input Bridge — Gaming PC";
-        Width = 440; Height = receiver ? 260 : 316;
+        Width = 440; Height = receiver ? 260 : 418;
         MinimumSize = MaximumSize = Size;
         StartPosition = FormStartPosition.CenterScreen;
         FormBorderStyle = FormBorderStyle.FixedSingle;
@@ -107,6 +121,54 @@ internal sealed class BridgeForm : Form
         Controls.Add(login);
         login.CheckedChanged += delegate { if (!initializing) SetLoginStart(login.Checked); };
         initializing = false;
+        gameMouse = new CheckBox { Text = "Game mouse mode (for locked cursor)", Location = new Point(20, 264),
+            Width = 395, Checked = mouse.GameMode, Enabled = rawMouse != null, ForeColor = muted };
+        Controls.Add(gameMouse);
+        gameMouse.CheckedChanged += delegate { mouse.GameMode = gameMouse.Checked; SaveMouseSettings(); };
+        AddLabel("Game mouse sensitivity", 20, 297, 190, 24, 9f, FontStyle.Regular, muted);
+        sensitivity = new NumericUpDown { Location = new Point(225, 294), Width = 90,
+            Minimum = 0.1m, Maximum = 5m, Increment = 0.1m, DecimalPlaces = 1,
+            Value = (decimal)mouse.Sensitivity, BackColor = Color.FromArgb(39, 49, 69), ForeColor = ink };
+        Controls.Add(sensitivity);
+        sensitivity.ValueChanged += delegate { mouse.Sensitivity = (double)sensitivity.Value; SaveMouseSettings(); };
+        mouseInfo = AddLabel("", 20, 331, 395, 43, 8.5f, FontStyle.Regular, muted);
+    }
+
+    private InputState CaptureInput(InputState previous)
+    {
+        if (mouse.GameMode && (rawMouse == null || rawMouse.LastError != ""))
+            throw new InvalidOperationException(rawMouse == null ? rawMouseError : rawMouse.LastError);
+        long now = Stopwatch.GetTimestamp();
+        double seconds = lastCaptureTicks == 0 ? 1.0 / 60 : (double)(now - lastCaptureTicks) / Stopwatch.Frequency;
+        lastCaptureTicks = now;
+        return mouse.Apply(WindowsInputCapture.Sample(previous, !mouse.GameMode), seconds);
+    }
+
+    private void LoadMouseSettings()
+    {
+        try
+        {
+            string[] settings = File.ReadAllLines(Path.Combine(configDir, "mouse-mode.txt"));
+            if (settings.Length == 2)
+            {
+                double value;
+                if (double.TryParse(settings[1], NumberStyles.Float, CultureInfo.InvariantCulture, out value))
+                    mouse.Sensitivity = value;
+                mouse.GameMode = settings[0] == "game";
+            }
+        }
+        catch { }
+    }
+
+    private void SaveMouseSettings()
+    {
+        try
+        {
+            Directory.CreateDirectory(configDir);
+            File.WriteAllLines(Path.Combine(configDir, "mouse-mode.txt"), new[] {
+                mouse.GameMode ? "game" : "desktop", mouse.Sensitivity.ToString(CultureInfo.InvariantCulture) });
+        }
+        catch (Exception error) { MessageBox.Show(error.Message, "Could not save mouse settings"); }
     }
 
     private void BuildReceiver()
@@ -128,6 +190,9 @@ internal sealed class BridgeForm : Form
         try
         {
             string host = destination.Text.Trim();
+            if (mouse.GameMode && rawMouse == null) throw new InvalidOperationException(rawMouseError);
+            mouse.Reset();
+            lastCaptureTicks = 0;
             sender.Start(host, 5055);
             Directory.CreateDirectory(configDir);
             File.WriteAllText(Path.Combine(configDir, "destination.txt"), host);
@@ -175,6 +240,10 @@ internal sealed class BridgeForm : Form
 
     private void UpdateSenderStatus()
     {
+        string captureError = rawMouse == null ? rawMouseError : rawMouse.LastError;
+        mouseInfo.Text = captureError != "" ? captureError :
+            (mouse.GameMode ? "Game movement; returns to center when idle.\n" : "Desktop cursor position.\n") +
+            mouse.RelativePackets.ToString("N0") + " raw movement events detected.";
         bool legacy = LegacySenderRunning();
         toggle.Enabled = !legacy || sender.IsRunning;
         toggle.Text = sender.IsRunning ? "Stop" : "Start";
@@ -253,5 +322,6 @@ internal sealed class BridgeForm : Form
         tray.Visible = false;
         tray.Dispose();
         if (sender != null) sender.Dispose();
+        if (rawMouse != null) rawMouse.Dispose();
     }
 }

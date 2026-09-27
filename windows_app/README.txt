@@ -16,6 +16,11 @@ No Tailscale connection is needed for this LAN relay.
 4. The app starts sending to 10.0.0.119 on UDP 5055. Its checkbox makes it start
    sending when the gaming user signs in. Close the window to keep it in the tray;
    use the tray menu's Exit command to stop it.
+   For matches that lock the cursor, enable "Game mouse mode (for locked cursor)".
+   Move the mouse during a match and confirm the raw movement event count rises.
+   Adjust Game mouse sensitivity if needed. Movement returns toward center while
+   idle. Turn Game mouse mode off to follow desktop cursor position in menus.
+   Mode and sensitivity are remembered at the next sign-in.
 5. On Canada, the VTube Input Bridge window should show Receiving input, with an
    increasing packet count, while the gaming PC is signed in. Move the mouse and
    press W to confirm GameMouseX/GameMouseY/GameKeyW change in VTube Studio.
@@ -27,7 +32,12 @@ button state, letters, digits, numpad digits, and supported special keys over
 UDP. It reports packets sent,
 which alone does not prove the stream PC received them; check Canada's app.
 
-Canada's updated receiver drives Keyboard Greenie OPT expressions for keys and
-left/right mouse buttons. It also drives the built-in MousePositionX/Y model
-inputs. Other models may need their own mappings or expressions. Keys with no
-expression in the model cannot animate a visible key.
+Canada's receiver checks the loaded model for matching key and mouse-button
+expressions. Keyboard Greenie and Keyboard Greenie OPT have those expressions.
+It also drives MousePositionX/Y for models that map them. Models without those
+expressions or mappings need them added before they can show that input.
+
+This game-mouse update goes on the gaming PC only. Canada needs no installation,
+restart, or mapping change. A physical in-match test is still needed to verify
+the fix with your game. The sender observes input and does not move the cursor
+or inject input into the game. Settings live in %APPDATA%\VTubeInputBridge.
