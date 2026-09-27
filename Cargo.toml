@@ -1,0 +1,13 @@
+[workspace]
+members = [
+    "shared",
+    "gaming_input_relay",
+    "vts_input_relay",
+    "simulator"
+]
+resolver = "2"
+
+[profile.release]
+strip = true
+lto = true
+codegen-units = 1

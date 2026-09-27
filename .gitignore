@@ -1,0 +1,23 @@
+/target
+# Binaries
+/target
+**/target
+
+# Config files that might contain secrets
+*.yaml
+*.yml
+*.json
+!example.*
+!*/example.*
+
+# Logs
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.iml
+
+# OS
+.DS_Store
+Thumbs.db
