@@ -13,6 +13,8 @@ No Tailscale connection is needed for this LAN relay.
 3. Run Install-GamingPC.ps1 in the signed-in gaming user's PowerShell session.
    If script execution is restricted, the agent can run:
    powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Install-GamingPC.ps1
+   The installer creates VTube Input Bridge shortcuts on the Desktop and in
+   the Start menu. The shortcuts launch the sender and start sending.
 4. The app starts sending to 10.0.0.119 on UDP 5055. Its checkbox makes it start
    sending when the gaming user signs in. Close the window to keep it in the tray;
    use the tray menu's Exit command to stop it.
