@@ -26,36 +26,40 @@ Spec: ../Stream-Deck-Reactives-Draft-Plan.md (source design outside this worktre
 ## Task 1: Transport and configuration
 Files: control_app/src/{commands,server,client,config,frames}.mjs, control_app/test/*.test.mjs.
 Interfaces: dispatcher.execute(command) -> Promise<result>; createApi(options) -> HTTP server; requestPeer(pair,method,path,body) -> Promise<result>; FrameStore accepts bounded PNGs and expires stale frames.
-- [ ] Write tests for command expiry, conflicting/duplicate IDs, queue bounds, auth/origin/source rejection, pinned TLS requests, malformed/oversized bodies and stale frames.
-- [ ] Observe failures, implement and run node --test.
-- [ ] Commit transport and tests.
+- [x] Write tests for command expiry, conflicting/duplicate IDs, queue bounds, auth/origin/source rejection, pinned TLS requests, malformed/oversized bodies and stale frames.
+- [x] Observe failures, implement and run node --test.
+- [x] Commit transport and tests.
 
 ## Task 2: App adapters
 Files: control_app/src/{obs,vts,media,adapters}.mjs, media_helper/{MediaHelper.csproj,Program.cs}, protocol fixture tests.
 Interfaces: dispatch(action,args) -> JSON result; supported actions: obs.scenes, obs.scene, spotify.play/pause/next/previous/status, vts.hotkeys/trigger, reactive.start/stop/status.
-- [ ] Write protocol tests with real local fake OBS/VTS servers and media process boundary tests. Observe failures.
-- [ ] Implement connection/auth/timeout cleanup, scene/hotkey discovery, Spotify-specific session selection.
-- [ ] Run tests and cross-compile self-contained Windows helper; commit.
+- [x] Write protocol tests with real local fake OBS/VTS servers and media process boundary tests. Observe failures.
+- [x] Implement connection/auth/timeout cleanup, scene/hotkey discovery, Spotify-specific session selection.
+- [x] Run tests and cross-compile self-contained Windows helper; commit.
 
 ## Task 3: Tray UI and reactive rendering
 Files: control_app/src/{main,renderer,preload,reactive}.mjs, control_app/ui/*.
 Interfaces: UI configure/enable/import/export pairing/start/stop/login browser; rendering publishes latest PNG through peer API; Canada serves only a read-only local overlay URL.
-- [ ] Test URL validation, frame bounds, navigation isolation and output transparency with a controlled Electron fixture.
-- [ ] Implement sandboxed Fugi browser and bounded 10fps PNG relay, status/configuration UI and tray lifecycle.
-- [ ] Verify local UI and mark actual Fugi/Discord and Windows behavior unverified; commit.
+- [x] Test URL validation, frame bounds, navigation isolation and output transparency with a controlled Electron fixture.
+- [x] Implement sandboxed Fugi browser and bounded 10fps PNG relay, status/configuration UI and tray lifecycle.
+- [x] Verify local UI and mark actual Fugi/Discord and Windows behavior unverified; commit.
 
 ## Task 4: Stream Deck plugin
 Files: streamdeck_plugin/src/*, *.sdPlugin/{manifest.json,ui/*,imgs/*}, tests.
 Interfaces: property inspector persists target/action/args; plugin reads per-user local connection file and sends one expiring command per press. Provides dropdown discovery and polling feedback without replay.
-- [ ] Write tests for settings->command mapping, invalid settings, offline/error feedback, credential and protocol handling.
-- [ ] Implement Elgato SDK action and property inspector; build and validate package; commit.
+- [x] Write tests for settings->command mapping, invalid settings, offline/error feedback, credential and protocol handling.
+- [x] Implement Elgato SDK action and property inspector; build and validate package; commit.
 
 ## Task 5: Reversible packaging and verification
 Files: scripts/{build-controls.*,Install-Control.ps1,Rollback-Control.ps1}, docs/Control-Setup.md, docs/Control-Build-Status.md, additive CI job.
-- [ ] Test installer/rollback against temporary managed files where Windows tooling is available; otherwise explicitly record unavailable native gates.
-- [ ] Produce versioned separate Pantry/Canada ZIPs and plugin with checksums; package installed runtime dependencies and media helper.
-- [ ] Run complete control/plugin tests, Rust regression tests, native C# tests when available, static package checks and branch review.
-- [ ] Preserve branch and baseline commit bd58b63; write manifest of artifacts, verification limits and exact rollback steps. No auto installation, merging or production settings changes.
+- [x] Test installer/rollback against temporary managed files where Windows tooling is available; otherwise explicitly record unavailable native gates.
+- [x] Produce versioned separate Pantry/Canada ZIPs and plugin with checksums; package installed runtime dependencies and media helper.
+- [x] Run complete control/plugin tests, Rust regression tests, native C# tests when available, static package checks and branch review.
+- [x] Preserve branch and baseline commit bd58b63; write manifest of artifacts, verification limits and exact rollback steps. No auto installation, merging or production settings changes.
+
+## Completion limits
+
+Local build tasks completed. Native Windows deployment, actual Stream Deck hardware, native Spotify playback and Fugi/Discord/VTS verification remain explicit gates; no installation was performed. Rollback filesystem/ownership logic and installer dry runs were exercised locally; real Windows registry/COM/firewall changes were not.
 
 ## Execution rulings
 - The native worktree tool cannot find the nested repository; created a Git worktree under outputs/vtube-control-worktree on feature/stream-deck-reactives.

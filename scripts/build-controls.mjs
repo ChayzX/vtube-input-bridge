@@ -2,7 +2,7 @@ import {packager} from '../control_app/node_modules/@electron/packager/dist/inde
 const root=process.cwd();const version=JSON.parse(await readFile('control_app/package.json')).version;await mkdir('build',{recursive:true});
 const [app]=await packager({dir:join(root,'control_app'),name:'VTubeControl',platform:'win32',arch:'x64',out:join(root,'build'),overwrite:true,asar:false,icon:join(root,'control_app/ui/icon.ico'),appVersion:version,buildVersion:'0.2.0.1',ignore:[/^\/test($|\/)/,/^\/dist($|\/)/],prune:true});
 async function files(dir){let result=[];for(const name of await readdir(dir)){const path=join(dir,name);if((await stat(path)).isDirectory())result.push(...await files(path));else result.push({path:relative(app,path).replaceAll('\\','/'),sha256:createHash('sha256').update(await readFile(path)).digest('hex')});}return result;}
-const manifest=await files(app);const scripts=['Install-Control.ps1','Rollback-Control.ps1'];
+const manifest=await files(app);const scripts=['Install-Control.ps1','Rollback-Control.ps1','Control-RollbackCore.ps1'];
 for(const role of ['pantry','canada']){
  const packageDir=join(root,'build',`VTubeControl-${role}-${version}`);await rm(packageDir,{recursive:true,force:true});await mkdir(packageDir,{recursive:false});
  // The same binaries serve both roles; launch argument and package manifest select the PC.
