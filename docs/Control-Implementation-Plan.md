@@ -5,7 +5,7 @@
 Goal: optional Stream Deck controls for Canada OBS/Spotify, plus an experimental transparent Fugi visual relay from Pantry into Canada VTube Studio.
 Architecture: add a separate Electron tray companion with an authenticated local API and certificate-pinned HTTPS LAN API. A supported Stream Deck SDK plugin talks only to Pantry's local companion. Existing tracking binaries and installers are unchanged.
 Tech stack: Node/Electron, Elgato SDK, OBS WebSocket v5, VTS API, self-contained .NET 10 Windows media helper.
-Spec: ../Stream-Deck-Reactives-Draft-Plan.md (source design outside this worktree).
+Spec: [Control-Design.md](Control-Design.md).
 
 ## Global constraints
 - No deployment or changes to Pantry or Canada in this task.
