@@ -20,3 +20,16 @@ mouse-mode.txt
 # OS
 .DS_Store
 Thumbs.db
+
+/node_modules/
+**/node_modules/
+**/bin/
+**/obj/
+/control_app/media/
+/control_app/dist/
+/streamdeck_plugin/*.sdPlugin/bin/
+/.superpowers/
+control-config.json
+pairing*.json
+plugin-connection.json
+*.pem
