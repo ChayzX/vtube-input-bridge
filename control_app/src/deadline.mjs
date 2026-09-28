@@ -1,0 +1,1 @@
+export function checkDeadline(options){if(options.expiresAt!==undefined&&Date.now()>=options.expiresAt){const e=Error('Command expired before action');e.code='expired';e.publicMessage='Command expired before action';throw e;}if(options.assertActive)options.assertActive();}

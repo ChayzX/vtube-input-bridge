@@ -1,3 +1,4 @@
+import {checkDeadline} from './deadline.mjs';
 import WebSocket from 'ws'; import {randomUUID} from 'node:crypto';import {loopbackWs} from './obs.mjs';
 export async function vtsAction(options,action,args={}) {
  if(!['vts.hotkeys','vts.trigger'].includes(action))throw new Error('Unsupported VTS action');
@@ -11,7 +12,7 @@ export async function vtsAction(options,action,args={}) {
   await opened;const identity={pluginName:'VTube Control',pluginDeveloper:'ChayzX'};let token=options.token;
   if(!token){token=(await request('AuthenticationTokenRequest',identity)).authenticationToken;await options.saveToken?.(token);}
   const auth=await request('AuthenticationRequest',{...identity,authenticationToken:token});if(!auth.authenticated)throw new Error('Approve VTube Control in VTube Studio or reset its token');
-  return action==='vts.hotkeys'?request('HotkeysInCurrentModelRequest',{}):request('HotkeyTriggerRequest',{hotkeyID:args.hotkey});
+  checkDeadline(options);return action==='vts.hotkeys'?request('HotkeysInCurrentModelRequest',{}):request('HotkeyTriggerRequest',{hotkeyID:args.hotkey});
  })(),new Promise((_,reject)=>timer=setTimeout(()=>reject(new Error('VTS timeout; outcome unknown')),5000))]);}
  finally{clearTimeout(timer);ws.terminate();for(const p of pending.values())p.reject(new Error('VTS request ended'));pending.clear();}
 }

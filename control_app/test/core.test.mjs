@@ -43,3 +43,14 @@ test('Fugi URL validation rejects other origins, credentials, scripts and HTTP',
  assert.equal(validateFugiUrl('https://reactive.fugi.tech/').host,'reactive.fugi.tech');
  for(const u of ['http://reactive.fugi.tech/','https://evil.test/','https://reactive.fugi.tech.evil.test/','javascript:alert(1)','https://a:b@reactive.fugi.tech/']) assert.throws(()=>validateFugiUrl(u));
 });
+test('only verified Fugi embed routes can be captured',async()=>{
+ const {validateSourceUrl}=await import('../src/frames.mjs');
+ assert.equal(validateSourceUrl('https://reactive.fugi.tech/group?size=100').pathname,'/group');
+ assert.equal(validateSourceUrl('https://reactive.fugi.tech/individual/123456789012345678').pathname,'/individual/123456789012345678');
+ for(const s of ['https://reactive.fugi.tech/','https://reactive.fugi.tech/login','https://reactive.fugi.tech/settings'])assert.throws(()=>validateSourceUrl(s));
+});
+test('only Fugi embed pages may access local Discord; mic/camera and LAN remain denied',async()=>{
+ const {fugiPermission}=await import('../src/frames.mjs');
+ assert.equal(fugiPermission('loopback-network','https://reactive.fugi.tech','https://reactive.fugi.tech/group'),true);
+ for(const [p,o,u] of [['media','https://reactive.fugi.tech','https://reactive.fugi.tech/group'],['local-network','https://reactive.fugi.tech','https://reactive.fugi.tech/group'],['loopback-network','https://evil.test','https://reactive.fugi.tech/group'],['loopback-network','https://reactive.fugi.tech','https://reactive.fugi.tech/settings']])assert.equal(fugiPermission(p,o,u),false);
+});

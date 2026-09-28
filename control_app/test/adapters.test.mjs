@@ -25,3 +25,8 @@ test('media adapter propagates unavailable Spotify and never sends arbitrary com
  await writeFile(file,`console.log(JSON.stringify({ok:false,code:'spotify_unavailable'}));`);
  try{await assert.rejects(mediaAction({exe:process.execPath,prefix:[file]},'spotify.next'),/spotify_unavailable/);await assert.rejects(mediaAction({exe:process.execPath,prefix:[file]},'run.exe'),/Unsupported/);}finally{await rm(dir,{recursive:true});}
 });
+test('VTS does not trigger a hotkey after slow authentication consumes deadline',async()=>{
+ const s=new WebSocketServer({port:0,host:'127.0.0.1'});await once(s,'listening');let triggered=0;
+ s.on('connection',w=>w.on('message',b=>{const p=JSON.parse(b);if(p.messageType==='AuthenticationRequest')setTimeout(()=>{if(w.readyState===1)w.send(JSON.stringify({requestID:p.requestID,messageType:'AuthenticationResponse',data:{authenticated:true}}));},60);if(p.messageType==='HotkeyTriggerRequest')triggered++;}));
+ try{await assert.rejects(vtsAction({url:`ws://127.0.0.1:${s.address().port}`,token:'token',expiresAt:Date.now()+10},'vts.trigger',{hotkey:'friends'}),/expired/);assert.equal(triggered,0);}finally{await new Promise(r=>s.close(r));}
+});
