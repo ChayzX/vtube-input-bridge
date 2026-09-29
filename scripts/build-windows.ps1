@@ -4,18 +4,19 @@ Set-Location (Split-Path $PSScriptRoot -Parent)
 $csc = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
 if (-not (Test-Path $csc)) { throw 'The .NET Framework C# compiler is required.' }
 New-Item -ItemType Directory -Force build | Out-Null
-$common = @('windows_app/BridgeCore.cs', 'windows_app/SenderRuntime.cs', 'windows_app/MouseMotion.cs')
+# csc.exe 4.8 cannot open sources given with forward slashes, so these paths use backslashes.
+$common = @('windows_app\BridgeCore.cs', 'windows_app\SenderRuntime.cs', 'windows_app\MouseMotion.cs')
 foreach ($suite in @('BridgeCore', 'SenderRuntime', 'MouseMotion')) {
-    & $csc /nologo /nowarn:0649 /r:System.Web.Extensions.dll "/out:build/${suite}Tests.exe" @common "windows_app/${suite}Tests.cs"
+    & $csc /nologo /nowarn:0649 /r:System.Web.Extensions.dll "/out:build\${suite}Tests.exe" @common "windows_app\${suite}Tests.cs"
     if ($LASTEXITCODE -ne 0) { throw ($suite + ' test compilation failed.') }
     & ".\build\${suite}Tests.exe"
     if ($LASTEXITCODE -ne 0) { throw ($suite + ' tests failed.') }
 }
-& $csc /nologo /nowarn:0649 /r:System.Web.Extensions.dll /r:System.Windows.Forms.dll /r:System.Drawing.dll /out:build/RawMouseInputTests.exe @common windows_app/RawMouseInput.cs windows_app/RawMouseInputTests.cs
+& $csc /nologo /nowarn:0649 /r:System.Web.Extensions.dll /r:System.Windows.Forms.dll /r:System.Drawing.dll /out:build\RawMouseInputTests.exe @common windows_app\RawMouseInput.cs windows_app\RawMouseInputTests.cs
 if ($LASTEXITCODE -ne 0) { throw 'Raw mouse test compilation failed.' }
 & .\build\RawMouseInputTests.exe
 if ($LASTEXITCODE -ne 0) { throw 'Raw mouse registration test failed.' }
-& $csc /nologo /target:winexe /win32icon:windows_app/bridge.ico /r:System.Web.Extensions.dll /r:System.Windows.Forms.dll /r:System.Drawing.dll /out:build/VTubeInputBridge.exe @common windows_app/RawMouseInput.cs windows_app/WindowsInputCapture.cs windows_app/BridgeApp.cs
+& $csc /nologo /target:winexe /win32icon:windows_app\bridge.ico /r:System.Web.Extensions.dll /r:System.Windows.Forms.dll /r:System.Drawing.dll /out:build\VTubeInputBridge.exe @common windows_app\RawMouseInput.cs windows_app\WindowsInputCapture.cs windows_app\BridgeApp.cs
 if ($LASTEXITCODE -ne 0) { throw 'App compilation failed.' }
 $gaming = 'build\GamingPC'
 New-Item -ItemType Directory -Force $gaming | Out-Null
