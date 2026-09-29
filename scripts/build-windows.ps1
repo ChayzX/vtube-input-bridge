@@ -32,4 +32,6 @@ if (-not $SkipReceiver) {
     Copy-Item docs\StreamPC-Setup.txt "$stream\README.txt" -Force
     Compress-Archive "$stream\*" build\VTubeInputBridge-StreamPC.zip -Force
 }
-Write-Output 'Build complete. Packages are in build\; nothing was installed.'
+$sums = Get-ChildItem build\VTubeInputBridge-*.zip | ForEach-Object { (Get-FileHash -Algorithm SHA256 $_.FullName).Hash.ToLower() + '  ' + $_.Name }
+Set-Content -Path build\SHA256SUMS.txt -Value $sums
+Write-Output 'Build complete. Packages are in build\; SHA256SUMS.txt lists each ZIP; attach it to the release for Update-VTubeBridge.ps1. Nothing was installed.'
