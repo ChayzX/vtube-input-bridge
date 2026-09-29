@@ -14,6 +14,7 @@ param(
     [string]$Repo = 'ChayzX/vtube-input-bridge',
     [string]$ApiBase = 'https://api.github.com',
     [string]$Tag,
+    [string]$Token,
     [switch]$StopApp,
     [switch]$Force
 )
@@ -21,9 +22,10 @@ $ErrorActionPreference = 'Stop'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 if ($Role -eq 'Stream' -and -not $GamingPC) { throw 'Stream role requires -GamingPC <gaming PC IPv4 address>.' }
 
-# Public repos need no token; set GITHUB_TOKEN (read-only) if the repo is ever private again.
+# The repo is private: use a read-only fine-grained token (-Token, or the VTUBE_BRIDGE_TOKEN / GITHUB_TOKEN environment variable).
+if (-not $Token) { $Token = if ($env:VTUBE_BRIDGE_TOKEN) { $env:VTUBE_BRIDGE_TOKEN } else { $env:GITHUB_TOKEN } }
 $headers = @{ 'User-Agent' = 'VTubeBridgeUpdater'; 'Accept' = 'application/vnd.github+json' }
-if ($env:GITHUB_TOKEN) { $headers['Authorization'] = 'Bearer ' + $env:GITHUB_TOKEN }
+if ($Token) { $headers['Authorization'] = 'Bearer ' + $Token }
 $api = $ApiBase + '/repos/' + $Repo
 
 # /releases/latest skips pre-releases, and every release so far is one, so pick the newest published release.
@@ -31,7 +33,8 @@ if ($Tag) { $release = Invoke-RestMethod -Headers $headers -Uri ($api + '/releas
 else {
     # Assign before piping: Invoke-RestMethod emits the JSON array as one object, so piping the cmdlet
     # directly (or wrapping it in @()) would hand Where-Object a single array instead of the releases.
-    $all = Invoke-RestMethod -Headers $headers -Uri ($api + '/releases?per_page=20')
+    try { $all = Invoke-RestMethod -Headers $headers -Uri ($api + '/releases?per_page=20') }
+    catch { throw ('Could not list releases for ' + $Repo + ' (' + $_.Exception.Message + '). Check that VTUBE_BRIDGE_TOKEN is set in this window, unexpired, and has Contents: Read-only on this repository.') }
     $release = $all | Where-Object { -not $_.draft } | Sort-Object { [datetime]$_.published_at } -Descending | Select-Object -First 1
 }
 if (-not $release) { throw 'No published release was found.' }

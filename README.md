@@ -32,18 +32,35 @@ The legacy console sender remains available as `gaming_input_relay.exe` with `--
 
 ## Updating a PC
 
-`scripts/Update-VTubeBridge.ps1` downloads the newest release for that PC's role, verifies it against the release's `SHA256SUMS.txt`, and runs the matching installer. It refuses to install a package with no checksum entry or a mismatch, and skips the install if that release is already installed (`-Force` reinstalls).
+`scripts/Update-VTubeBridge.ps1` downloads the newest release for that PC's role, verifies it against the release's `SHA256SUMS.txt`, and runs the matching installer. It refuses to install a package with no checksum entry or a mismatch, and skips the install if that release is already installed (`-Force` reinstalls). The repository is private, so each PC needs a read-only token.
+
+**One-time setup per PC** (Pantry and Canada each get their own token so either can be revoked separately):
+
+1. On GitHub: Settings > Developer settings > Personal access tokens > Fine-grained tokens > Generate new token. Name it for the PC, set an expiry, choose **Only select repositories** > `ChayzX/vtube-input-bridge`, and under Repository permissions set **Contents: Read-only** (Metadata read is added automatically). Nothing else.
+2. On that PC, store it for the signed-in user (a new PowerShell window is needed afterwards):
+
+```powershell
+[Environment]::SetEnvironmentVariable('VTUBE_BRIDGE_TOKEN', '<paste token>', 'User')
+```
+
+3. Fetch the updater (re-run to pick up a newer copy):
+
+```powershell
+$h = @{ Authorization = "Bearer $env:VTUBE_BRIDGE_TOKEN"; Accept = 'application/vnd.github.raw' }
+Invoke-WebRequest -Headers $h -UseBasicParsing -OutFile "$env:USERPROFILE\Update-VTubeBridge.ps1" -Uri 'https://api.github.com/repos/ChayzX/vtube-input-bridge/contents/scripts/Update-VTubeBridge.ps1'
+```
+
+**Updating**
 
 ```powershell
 # Gaming PC (Pantry), as the signed-in gaming user; -StopApp exits a running sender first
-irm https://raw.githubusercontent.com/ChayzX/vtube-input-bridge/main/scripts/Update-VTubeBridge.ps1 -OutFile $env:TEMP\Update-VTubeBridge.ps1
-& $env:TEMP\Update-VTubeBridge.ps1 -Role Gaming -StopApp
+& "$env:USERPROFILE\Update-VTubeBridge.ps1" -Role Gaming -StopApp
 
 # Stream PC (Canada), in an administrator PowerShell; stop the bridge first (the installer will not interrupt it)
-& $env:TEMP\Update-VTubeBridge.ps1 -Role Stream -GamingPC <gaming-PC-LAN-IP>
+& "$env:USERPROFILE\Update-VTubeBridge.ps1" -Role Stream -GamingPC <gaming-PC-LAN-IP>
 ```
 
-Use `-Tag <release tag>` to pin a version. To publish an update, run `scripts\build-windows.ps1`, then create a release that includes both ZIPs and `build\SHA256SUMS.txt`: `gh release create <tag> build\*.zip build\SHA256SUMS.txt`.
+The Stream PC installer needs an administrator shell, and the token must be visible there: store it as the same user that opens the elevated shell, or pass `-Token <token>`. Use `-Tag <release tag>` to pin a version. To publish an update, run `scripts\build-windows.ps1`, then create a release that includes both ZIPs and `build\SHA256SUMS.txt`: `gh release create <tag> build\*.zip build\SHA256SUMS.txt`.
 
 ## Build and test
 
