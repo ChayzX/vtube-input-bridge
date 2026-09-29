@@ -7,12 +7,14 @@ permissions:
   contents: read
 jobs:
   rust:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, homelab-ci]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo test --workspace --locked
   windows:
+    # Manual only: the Windows build is heavy and no self-hosted Windows runner is set up for this repo.
+    if: github.event_name == 'workflow_dispatch'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
