@@ -40,12 +40,15 @@ jobs:
         with:
           node-version: 24
       - uses: actions/setup-dotnet@v4
+        env:
+          # The default, /usr/share/dotnet, is not writable by the runner user.
+          DOTNET_INSTALL_DIR: ${{ runner.tool_cache }}/dotnet
         with:
           dotnet-version: 10.0.x
       - name: Install PowerShell
         run: |
-          dotnet tool install --global PowerShell
-          echo "$HOME/.dotnet/tools" >> "$GITHUB_PATH"
+          dotnet tool install --tool-path "$RUNNER_TEMP/pwsh" PowerShell
+          echo "$RUNNER_TEMP/pwsh" >> "$GITHUB_PATH"
       - name: Build optional control companion and plugin
         shell: bash
         run: pwsh -NoProfile -File ./scripts/build-controls.ps1
