@@ -30,6 +30,40 @@ The sender also includes an optional `pressed_keys` array of Windows virtual-key
 
 The legacy console sender remains available as `gaming_input_relay.exe` with `--destination`, `--port`, `--rate`, and `--simulate`, but it must not run alongside the app sender. Receiver options are `--bind <IP:port>`, `--vts-url <local WebSocket URL>`, `--token-file <path>`, and `--status-file <path>`. The receiver only accepts packets from `--source`, rejects invalid or out-of-order data, and retries the VTube Studio connection after a disconnect. VTube Studio releases plugin-controlled parameters about one second after updates stop.
 
+## Updating a PC
+
+**One-click update for the gaming PC.** After building, run `.\scripts\New-GamingPCInstaller.ps1 -Tag <release tag>`. It cross-checks `build\VTubeInputBridge-GamingPC.zip` against `build\SHA256SUMS.txt` and writes `build\Update-VTubeInputBridge-GamingPC.cmd`, a single file with the package and its SHA256 embedded. The streamer double-clicks it as the signed-in gaming user; no token, download, or PowerShell commands are needed. It refuses a package that fails its checksum, disables and stops any old `gaming_input_relay.exe` task, exits the running app, runs the package's `Install-GamingPC.ps1`, and records the version where `Update-VTubeBridge.ps1` looks for it. Windows shows an unsigned-file warning for a downloaded `.cmd` (choose **Run**, or **More info > Run anyway**). Gmail blocks `.cmd` attachments, so send it another way, such as Discord or a cloud-drive link.
+
+`scripts/Update-VTubeBridge.ps1` downloads the newest release for that PC's role, verifies it against the release's `SHA256SUMS.txt`, and runs the matching installer. It refuses to install a package with no checksum entry or a mismatch, and skips the install if that release is already installed (`-Force` reinstalls). The repository is private, so each PC needs a read-only token.
+
+**One-time setup per PC** (Pantry and Canada each get their own token so either can be revoked separately):
+
+1. On GitHub: Settings > Developer settings > Personal access tokens > Fine-grained tokens > Generate new token. Name it for the PC, set an expiry, choose **Only select repositories** > `ChayzX/vtube-input-bridge`, and under Repository permissions set **Contents: Read-only** (Metadata read is added automatically). Nothing else.
+2. On that PC, store it for the signed-in user (a new PowerShell window is needed afterwards):
+
+```powershell
+[Environment]::SetEnvironmentVariable('VTUBE_BRIDGE_TOKEN', '<paste token>', 'User')
+```
+
+3. Fetch the updater (re-run to pick up a newer copy):
+
+```powershell
+$h = @{ Authorization = "Bearer $env:VTUBE_BRIDGE_TOKEN"; Accept = 'application/vnd.github.raw' }
+Invoke-WebRequest -Headers $h -UseBasicParsing -OutFile "$env:USERPROFILE\Update-VTubeBridge.ps1" -Uri 'https://api.github.com/repos/ChayzX/vtube-input-bridge/contents/scripts/Update-VTubeBridge.ps1'
+```
+
+**Updating**
+
+```powershell
+# Gaming PC (Pantry), as the signed-in gaming user; -StopApp exits a running sender first
+& "$env:USERPROFILE\Update-VTubeBridge.ps1" -Role Gaming -StopApp
+
+# Stream PC (Canada), in an administrator PowerShell; stop the bridge first (the installer will not interrupt it)
+& "$env:USERPROFILE\Update-VTubeBridge.ps1" -Role Stream -GamingPC <gaming-PC-LAN-IP>
+```
+
+The Stream PC installer needs an administrator shell, and the token must be visible there: store it as the same user that opens the elevated shell, or pass `-Token <token>`. Use `-Tag <release tag>` to pin a version. To publish an update, run `scripts\build-windows.ps1`, then create a release that includes both ZIPs and `build\SHA256SUMS.txt`: `gh release create <tag> build\*.zip build\SHA256SUMS.txt`.
+
 ## Build and test
 
 On Windows, install a Rust toolchain with its native linker and run:
