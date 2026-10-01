@@ -4,6 +4,8 @@ This is a separate optional companion. It does not replace VTube Input Bridge, c
 
 ## Install later, during an offline test window
 
+On the gaming PC, `Install-VTubeControl-GamingPC.cmd` (made by `scripts/New-ControlInstaller.ps1`) performs steps 1 and 2 with the default options and also opens the Stream Deck plugin installer and the companion. Continue from step 4.
+
 1. Verify the ZIP checksum and extract the package for the appropriate PC. Keep the existing tracking app running.
 2. In PowerShell, run `./Install-Control.ps1`. It installs into `%LOCALAPPDATA%\VTubeControl\versions\0.2.0-preview.1`, creates Desktop and Start menu **VTube Control** shortcuts, and records backups. It does not launch the app, enable startup, or add a firewall rule by default.
 3. Optional flags: `-EnableStartup` adds a separate per-user Run entry; `-EnableFirewall -PeerAddress <other-PC-IP>` creates a uniquely named private-network inbound TCP 5056 rule. The firewall option requires elevated PowerShell under the same Windows account that will run the companion. Pantry peer: `10.0.0.119`; Canada peer: `10.0.0.112`. Confirm current IPs first.

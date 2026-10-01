@@ -13,3 +13,4 @@ Checked { pwsh -NoProfile -File scripts/control-tests/Installer.Tests.ps1 }
 Checked { pwsh -NoProfile -File scripts/control-tests/Rollback.Tests.ps1 }
 Checked { node scripts/build-controls.mjs }
 Checked { streamdeck_plugin/node_modules/.bin/streamdeck pack streamdeck_plugin/com.chayzx.vtubecontrol.sdPlugin -o build }
+Checked { pwsh -NoProfile -File scripts/New-ControlInstaller.ps1 }

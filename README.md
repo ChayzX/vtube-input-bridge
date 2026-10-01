@@ -82,4 +82,6 @@ On Linux, `cargo test --workspace --locked` tests the Rust workspace. With Mono 
 
 Tracking sources/installers are untouched. Controls start disabled, install into versioned directories, and have a separate rollback script and backup record. No code automatically edits OBS scenes, VTS model mappings or Stream Deck profiles. Read [setup and rollback](docs/Control-Setup.md) and [build limits](docs/Control-Build-Status.md) before installing.
 
+**One-click install on the gaming PC.** After building, `.\scripts\New-ControlInstaller.ps1` wraps the pantry package and the Stream Deck plugin into `build\Install-VTubeControl-GamingPC.cmd` (about 200 MB, so share it as a cloud-drive link). Double-clicking it as the signed-in gaming user verifies both payloads' SHA256, runs `Install-Control.ps1 -Role pantry` (no startup entry or firewall rule), hands the plugin to Stream Deck, and opens the companion with controls still disabled. Pairing, the stream PC companion, and the VTube Studio Web Item remain the manual steps in the setup guide.
+
 Build: Node 24+, .NET 10 SDK, `./scripts/build-controls.ps1`. The packaged Windows companion and Spotify helper include their runtimes; end users do not need Node/.NET for the companion. Stream Deck 7.1+ supplies the plugin's Node 24 runtime.
