@@ -6,6 +6,10 @@ Checked { npm ci --prefix streamdeck_plugin }
 Checked { npm test --prefix control_app }
 Checked { npm test --prefix streamdeck_plugin }
 Checked { dotnet run --project media_helper/tests/SelectionTests.csproj }
+# The tracking plugin runs the gaming PC sender as a hidden helper; ship it inside the app.
+Checked { dotnet build windows_app/VTubeInputBridge.csproj -c Release -o build/tracking-helper }
+New-Item -ItemType Directory -Force control_app/tracking | Out-Null
+Copy-Item build/tracking-helper/VTubeInputBridge.exe control_app/tracking/VTubeInputBridge.exe -Force
 Checked { dotnet publish media_helper/MediaHelper.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o control_app/media }
 Checked { npm run build --prefix streamdeck_plugin }
 Checked { streamdeck_plugin/node_modules/.bin/streamdeck validate streamdeck_plugin/com.chayzx.vtubecontrol.sdPlugin }
@@ -13,4 +17,5 @@ Checked { pwsh -NoProfile -File scripts/control-tests/Installer.Tests.ps1 }
 Checked { pwsh -NoProfile -File scripts/control-tests/Rollback.Tests.ps1 }
 Checked { node scripts/build-controls.mjs }
 Checked { streamdeck_plugin/node_modules/.bin/streamdeck pack streamdeck_plugin/com.chayzx.vtubecontrol.sdPlugin -o build }
-Checked { pwsh -NoProfile -File scripts/New-ControlInstaller.ps1 }
+Checked { pwsh -NoProfile -File scripts/New-ControlInstaller.ps1 -Role pantry }
+Checked { pwsh -NoProfile -File scripts/New-ControlInstaller.ps1 -Role canada }

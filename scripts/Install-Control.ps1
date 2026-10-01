@@ -35,8 +35,9 @@ $settingsAclBefore=if(Test-Path -LiteralPath (Join-Path $env:APPDATA 'VTubeContr
 $id = (Get-Date -Format 'yyyyMMdd-HHmmss') + '-' + [guid]::NewGuid().ToString('N')
 $backup = Join-Path $InstallRoot "rollback\$id"
 New-Item -ItemType Directory -Path $backup -Force | Out-Null
-$desktop = Join-Path ([Environment]::GetFolderPath('Desktop')) 'VTube Control.lnk'
-$startMenu = Join-Path ([Environment]::GetFolderPath('Programs')) 'VTube Control.lnk'
+# The app now hosts tracking too, so it takes over the familiar VTube Input Bridge shortcuts (backed up for rollback).
+$desktop = Join-Path ([Environment]::GetFolderPath('Desktop')) 'VTube Input Bridge.lnk'
+$startMenu = Join-Path ([Environment]::GetFolderPath('Programs')) 'VTube Input Bridge.lnk'
 $settings = Join-Path $env:APPDATA 'VTubeControl'
 $runKey='HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
 $state=[ordered]@{schema=1;versionPath=$versionPath;role=$Role;shortcuts=@();startupChanged=$false;startupBefore=$null;startupExpected=$null;firewallName=$null;settingsPath=$settings;settings=@();complete=$false;rolledBack=$false;rootAclBefore=$rootAclBefore;settingsAclBefore=$settingsAclBefore}
@@ -73,7 +74,7 @@ try {
   $entry.installedHash=(Get-FileHash -LiteralPath $entry.path -Algorithm SHA256).Hash;Save-State
  }
  if ($EnableStartup) {
-  $state.startupExpected='"'+$exe+'" --'+$Role;$state.startupChanged=$true;Save-State
+  $state.startupExpected='"'+$exe+'" --'+$Role+' --background';$state.startupChanged=$true;Save-State
   New-Item -Path $runKey -Force | Out-Null
   New-ItemProperty -Path $runKey -Name VTubeControl -Value $state.startupExpected -PropertyType String -Force | Out-Null
  }

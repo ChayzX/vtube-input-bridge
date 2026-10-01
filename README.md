@@ -2,9 +2,12 @@
 
 A Windows app and a background receiver bridge keyboard and mouse state from a gaming PC to VTube Studio on the stream PC. The gaming app transmits UDP on port 5055. The receiver creates 13 custom VTube Studio input parameters and updates them while packets arrive. The same app shows receiver status on the stream PC. Closing either app window leaves it in the system tray.
 
+**One app per PC (0.3 and later).** The **VTube Input Bridge** app (`control_app/`) hosts every feature as a plugin: tracking, Stream Deck controls, and reactives. Each plugin starts and fails on its own, so a Stream Deck or reactives problem never stops tracking. On the gaming PC the tracking plugin runs the tested sender below as a hidden helper (`VTubeInputBridge.exe --headless`) and restarts it if it exits; on the stream PC it shows the relay service's status. The double-click installers `Install-VTubeInputBridge-GamingPC.cmd` and `Install-VTubeInputBridge-StreamPC.cmd` install the app, start it in the tray at sign-in, and retire the separate tracking window. The stream PC's `vts_input_relay` background service stays as it is.
+
 ## Repository layout
 
-- `windows_app/`: Pantry's windowed sender, raw mouse capture, tests, and the tray status UI used on both PCs.
+- `control_app/`: the VTube Input Bridge app; `src/plugins/` holds the tracking, controls and reactives plugins.
+- `windows_app/`: Pantry's sender and raw mouse capture (run headless by the app, or as the older standalone window), and tests.
 - `vts_input_relay/`: Canada's background UDP-to-VTube-Studio receiver.
 - `shared/`: version 1 packet types; `simulator/`: development packet generator.
 - `gaming_input_relay/`: legacy console sender (desktop cursor capture only).
@@ -76,12 +79,19 @@ This tests and builds the app and receiver, then writes separate GamingPC and St
 
 On Linux, `cargo test --workspace --locked` tests the Rust workspace. With Mono and its WinForms/Web.Extensions assemblies installed, `bash scripts/test-mono.sh` runs the pure app and UDP tests and compiles the Windows app. Raw Input registration must be tested on Windows. The GitHub Actions Windows job runs that smoke test and uploads both packages. Binaries, local runtime files, and tokens are excluded from Git.
 
-## Optional Stream Deck and reactive companion (preview)
+## Stream Deck and reactives plugins (preview)
 
-`control_app/`, `streamdeck_plugin/`, and `media_helper/` add a separate **VTube Control** tray app. Pantry's Stream Deck can select Canada OBS scenes, control Canada Spotify, and trigger saved VTube Studio hotkeys. An experimental sandboxed Fugi renderer on Pantry relays transparent PNGs to a Canada Web Item. Real Discord speaking-state behavior and native Windows deployment remain unverified.
+`control_app/`, `streamdeck_plugin/`, and `media_helper/` provide the app's Stream Deck controls and reactives plugins. Pantry's Stream Deck can select Canada OBS scenes, control Canada Spotify, and trigger saved VTube Studio hotkeys. An experimental sandboxed Fugi renderer on Pantry relays transparent PNGs to a Canada Web Item. Real Discord speaking-state behavior and native Windows deployment remain unverified.
 
-Tracking sources/installers are untouched. Controls start disabled, install into versioned directories, and have a separate rollback script and backup record. No code automatically edits OBS scenes, VTS model mappings or Stream Deck profiles. Read [setup and rollback](docs/Control-Setup.md) and [build limits](docs/Control-Build-Status.md) before installing.
+Controls start disabled, install into versioned directories, and have a separate rollback script and backup record. No code automatically edits OBS scenes, VTS model mappings or Stream Deck profiles. Read [setup and rollback](docs/Control-Setup.md) and [build limits](docs/Control-Build-Status.md) before installing.
 
-**One-click install on the gaming PC.** After building, `.\scripts\New-ControlInstaller.ps1` wraps the pantry package and the Stream Deck plugin into `build\Install-VTubeControl-GamingPC.cmd` (about 200 MB, so share it as a cloud-drive link). Double-clicking it as the signed-in gaming user verifies both payloads' SHA256, runs `Install-Control.ps1 -Role pantry` (no startup entry or firewall rule), hands the plugin to Stream Deck, and opens the companion with controls still disabled. Pairing, the stream PC companion, and the VTube Studio Web Item remain the manual steps in the setup guide.
+**One-click install per PC.** `build-controls.ps1` runs `.\scripts\New-ControlInstaller.ps1 -Role pantry` and `-Role canada`, writing `build\Install-VTubeInputBridge-GamingPC.cmd` (with the Stream Deck plugin) and `build\Install-VTubeInputBridge-StreamPC.cmd`. Each is about 200 MB, so share them as cloud-drive links. Double-clicking one as the signed-in user:
+1. Verifies the payloads' SHA256.
+2. Closes the separate tracking window and removes it from sign-in, saving the old entry under `%LOCALAPPDATA%\VTubeControl\retired`. On the gaming PC it also disables the legacy console sender task.
+3. Runs `Install-Control.ps1 -Role <role> -EnableStartup`, which takes over the VTube Input Bridge shortcuts and starts the app in the tray at sign-in. It adds no firewall rule.
+4. On the gaming PC, hands the plugin to Stream Deck.
+5. Opens the app.
 
-Build: Node 24+, .NET 10 SDK, `./scripts/build-controls.ps1`. The packaged Windows companion and Spotify helper include their runtimes; end users do not need Node/.NET for the companion. Stream Deck 7.1+ supplies the plugin's Node 24 runtime.
+Tracking settings (address, game mouse mode) carry over because the helper reads the same files. Pairing and the VTube Studio Web Item remain manual steps in the setup guide.
+
+Build: Node 24+, .NET 10 SDK, `./scripts/build-controls.ps1`. The tracking helper is built from `windows_app/VTubeInputBridge.csproj` for the .NET Framework 4.8 built into Windows. The packaged Windows companion and Spotify helper include their runtimes; end users do not need Node/.NET for the companion. Stream Deck 7.1+ supplies the plugin's Node 24 runtime.
