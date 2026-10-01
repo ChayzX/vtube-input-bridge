@@ -12,11 +12,15 @@ foreach ($suite in @('BridgeCore', 'SenderRuntime', 'MouseMotion')) {
     & ".\build\${suite}Tests.exe"
     if ($LASTEXITCODE -ne 0) { throw ($suite + ' tests failed.') }
 }
+& $csc /nologo /nowarn:0649 /r:System.Web.Extensions.dll /r:System.Windows.Forms.dll /r:System.Drawing.dll /out:build\HeadlessSenderTests.exe @common windows_app\SenderSettings.cs windows_app\RawMouseInput.cs windows_app\WindowsInputCapture.cs windows_app\HeadlessSender.cs windows_app\HeadlessSenderTests.cs
+if ($LASTEXITCODE -ne 0) { throw 'Headless sender test compilation failed.' }
+& .\build\HeadlessSenderTests.exe
+if ($LASTEXITCODE -ne 0) { throw 'Headless sender tests failed.' }
 & $csc /nologo /nowarn:0649 /r:System.Web.Extensions.dll /r:System.Windows.Forms.dll /r:System.Drawing.dll /out:build\RawMouseInputTests.exe @common windows_app\RawMouseInput.cs windows_app\RawMouseInputTests.cs
 if ($LASTEXITCODE -ne 0) { throw 'Raw mouse test compilation failed.' }
 & .\build\RawMouseInputTests.exe
 if ($LASTEXITCODE -ne 0) { throw 'Raw mouse registration test failed.' }
-& $csc /nologo /target:winexe /win32icon:windows_app\bridge.ico /r:System.Web.Extensions.dll /r:System.Windows.Forms.dll /r:System.Drawing.dll /out:build\VTubeInputBridge.exe @common windows_app\RawMouseInput.cs windows_app\WindowsInputCapture.cs windows_app\BridgeApp.cs
+& $csc /nologo /target:winexe /win32icon:windows_app\bridge.ico /r:System.Web.Extensions.dll /r:System.Windows.Forms.dll /r:System.Drawing.dll /out:build\VTubeInputBridge.exe @common windows_app\SenderSettings.cs windows_app\RawMouseInput.cs windows_app\WindowsInputCapture.cs windows_app\HeadlessSender.cs windows_app\BridgeApp.cs
 if ($LASTEXITCODE -ne 0) { throw 'App compilation failed.' }
 $gaming = 'build\GamingPC'
 New-Item -ItemType Directory -Force $gaming | Out-Null
