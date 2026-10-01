@@ -33,3 +33,4 @@ control-config.json
 pairing*.json
 plugin-connection.json
 *.pem
+/control_app/tracking/

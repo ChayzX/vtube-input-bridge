@@ -9,11 +9,12 @@ $installRoot=[IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA 'VTubeControl')
 $settingsRoot=Join-Path $env:APPDATA 'VTubeControl'
 $backupRoot=[IO.Path]::GetFullPath((Split-Path $Record))
 if (-not $backupRoot.StartsWith((Join-Path $installRoot 'rollback')+[IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase)) {throw 'Unexpected rollback record path'}
-$allowed=@((Join-Path ([Environment]::GetFolderPath('Desktop')) 'VTube Control.lnk'),(Join-Path ([Environment]::GetFolderPath('Programs')) 'VTube Control.lnk'))
+# 0.3 and later own the VTube Input Bridge shortcuts; 0.2 records name VTube Control.
+$allowed=foreach ($name in @('VTube Input Bridge.lnk','VTube Control.lnk')) { foreach ($folder in @('Desktop','Programs')) { Join-Path ([Environment]::GetFolderPath($folder)) $name } }
 Assert-RollbackBounds $state $installRoot $settingsRoot $backupRoot $allowed
 $versionPath=[IO.Path]::GetFullPath($state.versionPath)
 if ((Test-Path -LiteralPath $versionPath) -and ((Get-Item -LiteralPath $versionPath).Attributes -band [IO.FileAttributes]::ReparsePoint)) {throw 'Version directory cannot be a junction or symbolic link'}
-if (Get-Process -Name VTubeControl -ErrorAction SilentlyContinue) {throw 'Exit VTube Control from its tray first. Do not close VTube Studio, OBS or the tracking bridge.'}
+if (Get-Process -Name VTubeControl -ErrorAction SilentlyContinue) {throw 'Exit VTube Input Bridge from its tray first. Do not close VTube Studio or OBS.'}
 $runKey='HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
 foreach ($entry in $state.shortcuts) {
  if ((Get-RollbackFileState $entry) -eq 'foreign') {throw "Shortcut changed after install: $($entry.path). Preserve it before rollback."}

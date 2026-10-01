@@ -58,4 +58,4 @@ jobs:
           path: |
             build/VTubeControl-*.zip
             build/*.streamDeckPlugin
-            build/Install-VTubeControl-GamingPC.cmd
+            build/Install-VTubeInputBridge-*.cmd

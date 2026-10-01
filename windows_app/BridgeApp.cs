@@ -13,6 +13,20 @@ internal static class Program
     private static void Main(string[] args)
     {
         bool receiver = Array.IndexOf(args, "--receiver") >= 0;
+        if (Array.IndexOf(args, "--headless") >= 0 && !receiver)
+        {
+            bool free;
+            using (var lockout = new System.Threading.Mutex(true, "Local\\VTubeInputBridge_sender", out free))
+            {
+                if (!free)
+                {
+                    Console.Out.WriteLine(HeadlessSender.MessageJson("fatal", "The VTube Input Bridge window is already sending on this PC. Exit it from its tray menu."));
+                    Console.Out.Flush();
+                    Environment.Exit(3);
+                }
+                Environment.Exit(HeadlessSender.Run(Console.In, Console.Out, BridgeForm.LegacySenderRunning));
+            }
+        }
         bool autoStart = Array.IndexOf(args, "--autostart") >= 0;
         bool created;
         using (var mutex = new System.Threading.Mutex(true, "Local\\VTubeInputBridge_" + (receiver ? "receiver" : "sender"), out created))
@@ -50,7 +64,6 @@ internal sealed class BridgeForm : Form
     private readonly Color muted = Color.FromArgb(158, 172, 196);
     private readonly Color green = Color.FromArgb(102, 218, 158);
     private readonly Color amber = Color.FromArgb(245, 190, 97);
-    private readonly string configDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "VTubeInputBridge");
     private readonly string statusPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "VTubeInputRelay", "status.json");
     private const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
     private const string RunName = "VTube Input Bridge";
@@ -62,7 +75,7 @@ internal sealed class BridgeForm : Form
         {
             try { rawMouse = new RawMouseInput(mouse); }
             catch (Exception error) { rawMouseError = error.Message; }
-            LoadMouseSettings();
+            SenderSettings.LoadMouse(mouse);
             sender = new SenderRuntime(CaptureInput);
         }
         Text = receiver ? "VTube Input Bridge — Stream PC" : "VTube Input Bridge — Gaming PC";
@@ -107,7 +120,7 @@ internal sealed class BridgeForm : Form
     private void BuildSender()
     {
         AddLabel("Stream PC address", 20, 190, 140, 24, 9f, FontStyle.Regular, muted);
-        destination = new TextBox { Location = new Point(164, 187), Width = 137, Text = LoadDestination(),
+        destination = new TextBox { Location = new Point(164, 187), Width = 137, Text = SenderSettings.LoadDestination(),
             BackColor = Color.FromArgb(39, 49, 69), ForeColor = ink, BorderStyle = BorderStyle.FixedSingle };
         Controls.Add(destination);
         toggle = new Button { Location = new Point(314, 184), Size = new Size(103, 31), Text = "Start",
@@ -144,30 +157,9 @@ internal sealed class BridgeForm : Form
         return mouse.Apply(WindowsInputCapture.Sample(previous, !mouse.GameMode), seconds);
     }
 
-    private void LoadMouseSettings()
-    {
-        try
-        {
-            string[] settings = File.ReadAllLines(Path.Combine(configDir, "mouse-mode.txt"));
-            if (settings.Length == 2)
-            {
-                double value;
-                if (double.TryParse(settings[1], NumberStyles.Float, CultureInfo.InvariantCulture, out value))
-                    mouse.Sensitivity = value;
-                mouse.GameMode = settings[0] == "game";
-            }
-        }
-        catch { }
-    }
-
     private void SaveMouseSettings()
     {
-        try
-        {
-            Directory.CreateDirectory(configDir);
-            File.WriteAllLines(Path.Combine(configDir, "mouse-mode.txt"), new[] {
-                mouse.GameMode ? "game" : "desktop", mouse.Sensitivity.ToString(CultureInfo.InvariantCulture) });
-        }
+        try { SenderSettings.SaveMouse(mouse); }
         catch (Exception error) { MessageBox.Show(error.Message, "Could not save mouse settings"); }
     }
 
@@ -175,13 +167,6 @@ internal sealed class BridgeForm : Form
     {
         AddLabel("This window monitors the receiver. The receiver keeps running if you exit.",
             20, 194, 398, 35, 8.5f, FontStyle.Regular, muted);
-    }
-
-    private string LoadDestination()
-    {
-        try { string value = File.ReadAllText(Path.Combine(configDir, "destination.txt")).Trim(); if (value != "") return value; }
-        catch { }
-        return "10.0.0.119";
     }
 
     private void StartSender()
@@ -194,14 +179,13 @@ internal sealed class BridgeForm : Form
             mouse.Reset();
             lastCaptureTicks = 0;
             sender.Start(host, 5055);
-            Directory.CreateDirectory(configDir);
-            File.WriteAllText(Path.Combine(configDir, "destination.txt"), host);
+            SenderSettings.SaveDestination(host);
         }
         catch (Exception error) { MessageBox.Show(error.Message, "Could not start sender", MessageBoxButtons.OK, MessageBoxIcon.Error); }
         UpdateStatus();
     }
 
-    private static bool LegacySenderRunning()
+    internal static bool LegacySenderRunning()
     {
         try { return Process.GetProcessesByName("gaming_input_relay").Length > 0; }
         catch { return false; }
