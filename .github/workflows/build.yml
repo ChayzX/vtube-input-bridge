@@ -29,3 +29,33 @@ jobs:
           path: |
             build/*.zip
             build/SHA256SUMS.txt
+  controls:
+    # The companion, Stream Deck plugin, and Spotify helper all build for Windows from Linux, so this uses the same
+    # self-hosted runner as the Rust job (hosted runners are unavailable for this account). PowerShell comes from the
+    # .NET tool so the installer and rollback fixture suites run here too.
+    runs-on: [self-hosted, homelab-ci]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: actions/setup-dotnet@v4
+        env:
+          # The default, /usr/share/dotnet, is not writable by the runner user.
+          DOTNET_INSTALL_DIR: ${{ runner.tool_cache }}/dotnet
+        with:
+          dotnet-version: 10.0.x
+      - name: Install PowerShell
+        run: |
+          dotnet tool install --tool-path "$RUNNER_TEMP/pwsh" PowerShell
+          echo "$RUNNER_TEMP/pwsh" >> "$GITHUB_PATH"
+      - name: Build optional control companion and plugin
+        shell: bash
+        run: pwsh -NoProfile -File ./scripts/build-controls.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: VTubeControl-Preview
+          path: |
+            build/VTubeControl-*.zip
+            build/*.streamDeckPlugin
+            build/Install-VTubeControl-GamingPC.cmd

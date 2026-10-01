@@ -75,3 +75,13 @@ On Windows, install a Rust toolchain with its native linker and run:
 This tests and builds the app and receiver, then writes separate GamingPC and StreamPC ZIPs under `build/`. It does not install either package. Use `-SkipReceiver` to build only the app/GamingPC ZIP. The stream installer refuses to interrupt a running bridge. Instructions are included in each ZIP.
 
 On Linux, `cargo test --workspace --locked` tests the Rust workspace. With Mono and its WinForms/Web.Extensions assemblies installed, `bash scripts/test-mono.sh` runs the pure app and UDP tests and compiles the Windows app. Raw Input registration must be tested on Windows. The GitHub Actions Windows job runs that smoke test and uploads both packages. Binaries, local runtime files, and tokens are excluded from Git.
+
+## Optional Stream Deck and reactive companion (preview)
+
+`control_app/`, `streamdeck_plugin/`, and `media_helper/` add a separate **VTube Control** tray app. Pantry's Stream Deck can select Canada OBS scenes, control Canada Spotify, and trigger saved VTube Studio hotkeys. An experimental sandboxed Fugi renderer on Pantry relays transparent PNGs to a Canada Web Item. Real Discord speaking-state behavior and native Windows deployment remain unverified.
+
+Tracking sources/installers are untouched. Controls start disabled, install into versioned directories, and have a separate rollback script and backup record. No code automatically edits OBS scenes, VTS model mappings or Stream Deck profiles. Read [setup and rollback](docs/Control-Setup.md) and [build limits](docs/Control-Build-Status.md) before installing.
+
+**One-click install on the gaming PC.** After building, `.\scripts\New-ControlInstaller.ps1` wraps the pantry package and the Stream Deck plugin into `build\Install-VTubeControl-GamingPC.cmd` (about 200 MB, so share it as a cloud-drive link). Double-clicking it as the signed-in gaming user verifies both payloads' SHA256, runs `Install-Control.ps1 -Role pantry` (no startup entry or firewall rule), hands the plugin to Stream Deck, and opens the companion with controls still disabled. Pairing, the stream PC companion, and the VTube Studio Web Item remain the manual steps in the setup guide.
+
+Build: Node 24+, .NET 10 SDK, `./scripts/build-controls.ps1`. The packaged Windows companion and Spotify helper include their runtimes; end users do not need Node/.NET for the companion. Stream Deck 7.1+ supplies the plugin's Node 24 runtime.

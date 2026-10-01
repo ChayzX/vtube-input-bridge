@@ -1,0 +1,45 @@
+{
+ "$schema": "https://schemas.elgato.com/streamdeck/plugins/manifest.json",
+ "Actions": [
+  {
+   "Name": "Bridge command",
+   "UUID": "com.chayzx.vtubecontrol.command",
+   "Icon": "imgs/control",
+   "Tooltip": "Control OBS, Spotify or VTube Studio on either PC",
+   "Controllers": [
+    "Keypad"
+   ],
+   "States": [
+    {
+     "Image": "imgs/control",
+     "TitleAlignment": "bottom",
+     "FontSize": 13
+    }
+   ]
+  }
+ ],
+ "Author": "ChayzX",
+ "CodePath": "bin/plugin.mjs",
+ "Description": "Optional LAN controls for the VTube Input Bridge setup.",
+ "Name": "VTube Control",
+ "Icon": "imgs/control",
+ "Category": "VTube Control",
+ "CategoryIcon": "imgs/control",
+ "URL": "https://github.com/ChayzX/vtube-input-bridge",
+ "Version": "0.2.0.1",
+ "SDKVersion": 2,
+ "Software": {
+  "MinimumVersion": "7.1"
+ },
+ "OS": [
+  {
+   "Platform": "windows",
+   "MinimumVersion": "10"
+  }
+ ],
+ "Nodejs": {
+  "Version": "24"
+ },
+ "UUID": "com.chayzx.vtubecontrol",
+ "PropertyInspectorPath": "ui/index.html"
+}
