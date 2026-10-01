@@ -32,6 +32,8 @@ The legacy console sender remains available as `gaming_input_relay.exe` with `--
 
 ## Updating a PC
 
+**One-click update for the gaming PC.** After building, run `.\scripts\New-GamingPCInstaller.ps1 -Tag <release tag>`. It cross-checks `build\VTubeInputBridge-GamingPC.zip` against `build\SHA256SUMS.txt` and writes `build\Update-VTubeInputBridge-GamingPC.cmd`, a single file with the package and its SHA256 embedded. The streamer double-clicks it as the signed-in gaming user; no token, download, or PowerShell commands are needed. It refuses a package that fails its checksum, disables and stops any old `gaming_input_relay.exe` task, exits the running app, runs the package's `Install-GamingPC.ps1`, and records the version where `Update-VTubeBridge.ps1` looks for it. Windows shows an unsigned-file warning for a downloaded `.cmd` (choose **Run**, or **More info > Run anyway**). Gmail blocks `.cmd` attachments, so send it another way, such as Discord or a cloud-drive link.
+
 `scripts/Update-VTubeBridge.ps1` downloads the newest release for that PC's role, verifies it against the release's `SHA256SUMS.txt`, and runs the matching installer. It refuses to install a package with no checksum entry or a mismatch, and skips the install if that release is already installed (`-Force` reinstalls). The repository is private, so each PC needs a read-only token.
 
 **One-time setup per PC** (Pantry and Canada each get their own token so either can be revoked separately):
