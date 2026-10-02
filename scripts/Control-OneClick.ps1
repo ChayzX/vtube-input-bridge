@@ -44,6 +44,21 @@ function Stop-Named([string]$Name, [string]$Label) {
     }
 }
 
+# Reports the result in a dialog that stays on top of other windows. The console's "press any key" missed key presses
+# once the app, the firewall prompt or Stream Deck took keyboard focus (issue #6), so a dialog is the one window the
+# user is sure to see and answer. VTC_QUIET=1 skips it for scripted installs.
+function Show-Result([string]$Text, [bool]$Failed) {
+    if ($env:VTC_QUIET -eq '1') { return }
+    try {
+        Add-Type -AssemblyName System.Windows.Forms
+        $owner = New-Object System.Windows.Forms.Form -Property @{ TopMost = $true }
+        try {
+            $icon = if ($Failed) { [System.Windows.Forms.MessageBoxIcon]::Error } else { [System.Windows.Forms.MessageBoxIcon]::Information }
+            [void][System.Windows.Forms.MessageBox]::Show($owner, $Text, 'VTube Input Bridge', [System.Windows.Forms.MessageBoxButtons]::OK, $icon)
+        } finally { $owner.Dispose() }
+    } catch { }
+}
+
 $exitCode = 0
 $work = Join-Path ([IO.Path]::GetTempPath()) ('vtubebridge-' + [Guid]::NewGuid().ToString('N'))
 try {
@@ -152,17 +167,23 @@ try {
         Say 'run Install-StreamPC.ps1 from the StreamPC package as administrator (see its README).' 'Yellow'
     }
 
-    # 5. Start the one app. On the gaming PC it starts sending as the old app did.
+    $nl = [Environment]::NewLine
+    Say ''
+    Say ('VTube Input Bridge ' + $Version + ' is installed.') 'Green'
+    Say 'It starts in the tray at sign-in. Stream Deck controls and reactives stay off until paired and enabled.'
+    Show-Result ('VTube Input Bridge ' + $Version + ' is installed.' + $nl + $nl + 'Click OK to open it. From now on it starts in the system tray when you sign in.') $false
+
+    # 5. Open the app only after the dialog, so nothing competes for focus. On the gaming PC it starts sending as the
+    #    old app did. This window then closes by itself.
     if (-not (Get-Process VTubeControl -ErrorAction SilentlyContinue)) {
         Start-Process -FilePath $exe -ArgumentList ('--' + $Role) -WorkingDirectory $versionPath
     }
-    Say ''
-    Say ('VTube Input Bridge ' + $Version + ' is installed and open (check the system tray).') 'Green'
-    Say 'It starts in the tray at sign-in. Stream Deck controls and reactives stay off until paired and enabled.'
+    Say 'VTube Input Bridge is open (check the system tray).' 'Green'
 } catch {
     Say ''
     Say ('Install failed: ' + $_.Exception.Message) 'Red'
     $exitCode = 1
+    Show-Result ('Install failed: ' + $_.Exception.Message + [Environment]::NewLine + [Environment]::NewLine + 'The installer window stays open with the details. Take a screenshot of it, then close it with its X button.') $true
 } finally {
     Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue
 }
