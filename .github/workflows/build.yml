@@ -41,6 +41,8 @@ jobs:
     # self-hosted runner as the Rust job (hosted runners are unavailable for this account). PowerShell comes from the
     # .NET tool so the installer and rollback fixture suites run here too.
     runs-on: [self-hosted, homelab-ci]
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - name: Install Windows GNU cross linker
@@ -64,7 +66,23 @@ jobs:
       - name: Build optional control companion and plugin
         shell: bash
         run: pwsh -NoProfile -File ./scripts/build-controls.ps1 ${{ inputs.artifacts_only && '-SkipTests' || '' }}
+      - name: Attach installers to a draft preview release
+        if: inputs.artifacts_only
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag='v0.3.0-preview.2'
+          if ! gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$tag" --repo "$GITHUB_REPOSITORY" --draft --prerelease --target "$GITHUB_SHA" \
+              --title 'VTube Input Bridge 0.3.0-preview.2' \
+              --notes 'Draft installers for Pantry (gaming PC) and Canada (stream PC). Not published.'
+          fi
+          gh release upload "$tag" --repo "$GITHUB_REPOSITORY" --clobber \
+            build/Install-VTubeInputBridge-GamingPC.cmd \
+            build/Install-VTubeInputBridge-StreamPC.cmd
       - uses: actions/upload-artifact@v4
+        if: ${{ !inputs.artifacts_only }}
         with:
           name: VTubeControl-Preview
           path: |
