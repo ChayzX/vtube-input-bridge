@@ -4,6 +4,7 @@ use shared::{InputState, Packet};
 use std::collections::{BTreeMap, BTreeSet};
 use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
+use tokio::io::AsyncReadExt;
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::time::{Duration, Instant};
 use tokio::net::{TcpStream, UdpSocket};
@@ -19,6 +20,7 @@ struct Config {
     vts_url: String,
     token_file: PathBuf,
     status_file: PathBuf,
+    managed: bool,
 }
 
 impl Config {
@@ -33,6 +35,7 @@ impl Config {
         let mut vts_url = "ws://127.0.0.1:8001".to_string();
         let mut token_file = default_token_file();
         let mut status_file = None;
+        let mut managed = false;
         while let Some(arg) = args.next() {
             match arg.as_ref() {
                 "--source" => source = Some(args.next().ok_or("missing source")?.as_ref().parse().map_err(|_| "invalid source IP")?),
@@ -40,6 +43,7 @@ impl Config {
                 "--vts-url" => vts_url = args.next().ok_or("missing VTS URL")?.as_ref().to_string(),
                 "--token-file" => token_file = args.next().ok_or("missing token file")?.as_ref().into(),
                 "--status-file" => status_file = Some(args.next().ok_or("missing status file")?.as_ref().into()),
+                "--managed" => managed = true,
                 other => return Err(format!("unknown option: {other}")),
             }
         }
@@ -48,7 +52,7 @@ impl Config {
             return Err("VTube Studio API must be on local loopback".into());
         }
         let status_file = status_file.unwrap_or_else(|| token_file.with_file_name("status.json"));
-        Ok(Self { source, bind, vts_url, token_file, status_file })
+        Ok(Self { source, bind, vts_url, token_file, status_file, managed })
     }
 }
 
@@ -348,6 +352,10 @@ async fn relay(socket: &mut VtsSocket, udp: &UdpSocket, filter: &mut PacketFilte
         vts_request(socket, inject_request(&packet.state), Duration::from_secs(3)).await?;
         expressions.apply(socket, desired_expressions(&packet.state)).await?;
         status.record_packet();
+        let acknowledgement = json!({"type": "ack", "version": 1, "sequence": packet.sequence}).to_string();
+        if let Err(error) = udp.send_to(acknowledgement.as_bytes(), sender).await {
+            tracing::debug!(%error, peer = %sender, "could not return input acknowledgement");
+        }
     }
 }
 
@@ -358,6 +366,14 @@ async fn main() -> Result<(), Error> {
         eprintln!("{message}");
         std::io::Error::new(std::io::ErrorKind::InvalidInput, message)
     })?;
+    // In managed mode, the app owns this process. EOF on its piped stdin is a graceful stop
+    // signal. Legacy scheduled-task launches do not opt in and retain their current behavior.
+    let mut shutdown = Box::pin(async {
+        let mut stdin = tokio::io::stdin();
+        let mut byte = [0_u8; 1];
+        let _ = stdin.read(&mut byte).await;
+    });
+    let managed = config.managed;
     let udp = UdpSocket::bind(config.bind).await?;
     let mut filter = PacketFilter::new(config.source);
     let mut status = StatusReporter::new(Some(config.status_file.clone()), config.source);
@@ -365,9 +381,13 @@ async fn main() -> Result<(), Error> {
     status.set_connected(false);
     tracing::info!(source = %config.source, bind = %config.bind, "listening for gaming input");
     loop {
-        match connect_async(&config.vts_url).await {
+        let connection = tokio::select! {
+            _ = &mut shutdown, if managed => break,
+            result = connect_async(&config.vts_url) => result,
+        };
+        match connection {
             Ok((mut socket, _)) => {
-                let result = async {
+                let session = async {
                     authenticate(&mut socket, &config.token_file).await?;
                     create_parameters(&mut socket).await?;
                     if !expressions.active.is_empty() {
@@ -380,14 +400,23 @@ async fn main() -> Result<(), Error> {
                     status.set_connected(true);
                     tracing::info!("connected to VTube Studio; map Game* inputs in your model");
                     relay(&mut socket, &udp, &mut filter, &mut status, &mut expressions).await
-                }.await;
+                };
+                let result = tokio::select! {
+                    _ = &mut shutdown, if managed => break,
+                    result = session => result,
+                };
                 if let Err(error) = result { tracing::warn!(%error, "VTube Studio session ended"); }
                 status.set_connected(false);
             }
             Err(error) => tracing::warn!(%error, "cannot connect to VTube Studio"),
         }
-        sleep(Duration::from_secs(3)).await;
+        tokio::select! {
+            _ = &mut shutdown, if managed => break,
+            _ = sleep(Duration::from_secs(3)) => {},
+        }
     }
+    status.set_connected(false);
+    Ok(())
 }
 
 #[cfg(test)]

@@ -1,15 +1,15 @@
 # VTube Control preview setup and rollback
 
-This is a separate optional companion. It does not replace VTube Input Bridge, change UDP 5055, modify tracking tasks, or read tracking authentication tokens. The preview was built locally; it has not been installed or tested on Pantry/Canada.
+VTube Input Bridge 0.3.0-preview.2 includes the tracking app and owns the Stream PC relay process. The app runs in the signed-in user's session. Closing its window hides it in the tray; choosing **Exit VTube Input Bridge** stops the relay and app. It keeps using UDP 5055 and does not change OBS, VTube Studio settings, or firewall rules.
 
 ## Install later, during an offline test window
 
-Since 0.3 this is one app with tracking built in. `Install-VTubeInputBridge-GamingPC.cmd` and `Install-VTubeInputBridge-StreamPC.cmd` (made by `scripts/New-ControlInstaller.ps1`) perform steps 1 and 2 with `-EnableStartup`, retire the separate tracking window, open the app, and on the gaming PC open the Stream Deck plugin installer. Continue from step 4. The manual steps below are for installing without the one-click file.
+`Install-VTubeInputBridge-GamingPC.cmd` and `Install-VTubeInputBridge-StreamPC.cmd` (made by `scripts/New-ControlInstaller.ps1`) install the app for the signed-in user and start it. On Canada, the one-click installer asks for a one-time UAC approval to save the old task and source address, then stop and remove only the old `VTube Input Relay` scheduled task. The installer itself and app remain non-elevated. The app uses a new per-user VTS token, so VTube Studio may ask for approval again. The old ProgramData executable and token are retained for rollback. Do not run `Install-StreamPC.ps1` again.
 
-1. Verify the ZIP checksum and extract the package for the appropriate PC. Exit the separate VTube Input Bridge window from its tray; the app's tracking plugin replaces it.
+1. Verify the ZIP checksum and extract the package for the appropriate PC. Exit the current VTube Input Bridge app from its tray before installing the update.
 2. In PowerShell, run `./Install-Control.ps1`. It installs into `%LOCALAPPDATA%\VTubeControl\versions\<version>`, creates Desktop and Start menu **VTube Input Bridge** shortcuts, and records backups. It does not launch the app, enable startup, or add a firewall rule by default.
 3. Optional flags: `-EnableStartup` adds a separate per-user Run entry; `-EnableFirewall -PeerAddress <other-PC-IP>` creates a uniquely named private-network inbound TCP 5056 rule. The firewall option requires elevated PowerShell under the same Windows account that will run the companion. Pantry peer: `10.0.0.119`; Canada peer: `10.0.0.112`. Confirm current IPs first.
-4. Open **VTube Input Bridge** on each PC. Tracking appears at the top and works without pairing. Confirm its role and its own IP. Save while controls are disabled. Export that PC’s pairing file, securely transfer it, and import it on the other PC. Pairing files contain a connection credential: delete transfer copies afterward. A replacement identity requires pairing again.
+4. On Canada, if doing a manual install, run `Migrate-StreamPCRelay.ps1` as administrator once before opening the new app. It preserves the task XML and Pantry source under `%LOCALAPPDATA%\VTubeControl\retired`. If the task is already gone, use the existing `%APPDATA%\VTubeControl\relay-config.json`; do not guess an address. Open **VTube Input Bridge** on both PCs. Tracking appears at the top and works without pairing. Confirm its role and its own IP. Save while controls are disabled. Export that PC’s pairing file, securely transfer it, and import it on the other PC. Pairing files contain a connection credential: delete transfer copies afterward. A replacement identity requires pairing again.
 5. On Canada enable OBS, Spotify and VTube Studio features as needed. Configure the OBS loopback WebSocket URL/password in this app. If OBS WebSocket is not enabled, record its previous configuration before enabling it manually. Do not expose OBS WebSocket to the LAN for this setup. Spotify must be running in the same signed-in user session. VTube Studio may ask to approve the separate **VTube Control** plugin when the first hotkey discovery request is made.
 6. Enable controls on both companions and save. Existing tracking is unaffected. Test **List OBS scenes**, **List VTS hotkeys**, and **Pause Spotify** from Pantry with the target **Other PC**. A timeout may mean the action already happened: check the app before pressing again.
 
@@ -35,7 +35,15 @@ This route is experimental. Fugi’s public embed code requests local Discord co
 4. On Canada copy the **Canada Web Item URL** from Canada’s companion. Manually load it as a VTube Studio Web Item, enable transparency, position it, and save an Item Scene/hotkey. The VTS API cannot automatically create arbitrary Web Items.
 5. Verify at least two people speaking separately, silence, join/leave, changing calls, renderer stop/restart and LAN disconnect. The overlay clears after two seconds without frames. Renderer liveness is checked before upload; this does not establish that Fugi’s upstream Discord speaking state is fresh. Never call the integration verified based solely on the “sending images” status.
 
-Closing the app window keeps it in the tray. **Exit VTube Input Bridge** stops the whole app, tracking included. Saving settings stops the experimental renderer; restart it explicitly. Rendering does not auto-start after Windows logon.
+Closing the app window keeps it in the tray. **Exit VTube Input Bridge** stops the whole app and its managed relay child. Unexpected relay exits are restarted with backoff. Pantry shows **Connected** only after Canada acknowledges a packet that VTube Studio applied; **Waiting for Stream PC** means there has been no recent acknowledgement. Saving settings stops the experimental renderer; restart it explicitly. Rendering does not auto-start after Windows logon.
+
+## If tracking does not connect
+
+1. Read Tracking on Canada first. **Waiting for VTube Studio** means open VTube Studio, enable its API, and approve **Game Input Relay** if it asks. **Waiting for gaming PC** means Canada is connected to VTube Studio but has not received recent input. **Receiver stopped** or **Restarting receiver** means the app is starting/recovering its relay.
+2. On Pantry, **Waiting for Stream PC** means the sender is running but has not received a recent acknowledgement. Check that Pantry is sending to Canada's current LAN address and that Canada's displayed Pantry source matches Pantry's current LAN address.
+3. If the PCs' addresses changed, restore their expected LAN addresses or update the saved receiver source and the existing restricted firewall rule through the normal setup process. Do not create broader firewall rules to make the warning disappear.
+4. Update both PCs to preview.2. An older Canada relay does not send acknowledgements, so Pantry will keep showing **Waiting for Stream PC** even if the older setup is otherwise working.
+5. If both PCs are on preview.2, both addresses match, and Canada says it is receiving input while Pantry remains waiting, the reply path is blocked. Record the exact messages on both PCs and stop there; the app does not change firewall rules automatically.
 
 ## Fast disable and full rollback
 
@@ -43,10 +51,11 @@ Fast disable: choose **Disable Stream Deck controls** from the tray. Mouse/keybo
 
 Full rollback:
 
-1. Exit **VTube Input Bridge** from its tray on the PC being rolled back; this also stops its tracking. Leave OBS, VTube Studio and VConnect running. To return to the separate tracking window afterwards, restore its sign-in entry from `%LOCALAPPDATA%\VTubeControl\retired` or reinstall the tracking package.
-2. Run `./Rollback-Control.ps1 -Record '<path printed by installer>\rollback.json'`. Use an elevated shell if the installer added a firewall rule.
-3. It restores backed-up shortcuts, optional startup value and companion settings; removes only its version directory and uniquely named firewall rule. Older versions and tracking are retained. Use `-KeepSettings` if you intentionally want to preserve the companion’s current configuration.
-4. In Stream Deck remove the new plugin manually. Back up a Stream Deck profile before editing it if you need to restore button assignments exactly.
-5. Remove the new reactive Web Item/Item Scene manually, or restore the saved VTS item configuration. Any manual OBS/VTS configuration is outside the installer: record it beforehand and reverse those exact changes. No automation changes those applications’ settings.
+1. Exit **VTube Input Bridge** from its tray on the PC being rolled back; this also stops its tracking. Leave OBS and VTube Studio running.
+2. On Canada, restore the old relay task with an elevated PowerShell: `./Restore-StreamPCRelay.ps1 -Record '<path printed by the migration>'`. The app must be exited first. This registers and starts the exact task XML saved during migration.
+3. Run `./Rollback-Control.ps1 -Record '<path printed by installer>\rollback.json'`. Use an elevated shell if the installer added a firewall rule.
+4. It restores backed-up shortcuts, optional startup value and companion settings; removes only its version directory and uniquely named firewall rule. Older versions and tracking files are retained. Use `-KeepSettings` if you intentionally want to preserve the companion’s current configuration.
+5. In Stream Deck remove the new plugin manually. Back up a Stream Deck profile before editing it if you need to restore button assignments exactly.
+6. Remove the new reactive Web Item/Item Scene manually, or restore the saved VTS item configuration. Any manual OBS/VTS configuration is outside the installer: record it beforehand and reverse those exact changes. No automation changes those applications’ settings.
 
 Rollback validates its version, settings, shortcut and backup paths, recognizes already restored shortcuts, and can resume after interruption. Installers refuse to replace a running companion and record partial installs for rollback. Rollback refuses to overwrite shortcuts/startup entries that were edited afterward. Restore the intended original files from the printed backup location if that guard fires. Per-user browser cookies may remain after rollback; they are inert without the companion and can be removed separately if desired.

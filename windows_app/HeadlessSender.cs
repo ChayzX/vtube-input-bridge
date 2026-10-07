@@ -91,7 +91,9 @@ internal sealed class HeadlessSender : IDisposable
     {
         var status = new Dictionary<string, object> {
             { "type", "status" }, { "running", sender.IsRunning }, { "packets", sender.PacketsSent },
-            { "error", sender.LastError }, { "destination", destination }, { "gameMode", mouse.GameMode },
+            { "error", sender.LastError }, { "destination", destination },
+            { "receiverConnected", sender.ReceiverConnected }, { "lastAckSequence", sender.LastAckSequence },
+            { "lastAckUnixMs", sender.LastAckUnixMs }, { "gameMode", mouse.GameMode },
             { "sensitivity", mouse.Sensitivity }, { "rawEvents", mouse.RelativePackets },
             { "rawError", rawMouse == null ? rawMouseError : rawMouse.LastError }, { "legacy", legacyRunning() }
         };

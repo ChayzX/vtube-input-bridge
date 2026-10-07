@@ -9,7 +9,7 @@ import {PluginHost} from './plugins/host.mjs';import {TrackingSender,TrackingRec
 // the link, so a companion failure cannot stop the input feed.
 const APP_NAME='VTube Input Bridge';
 const here=dirname(fileURLToPath(import.meta.url));const dir=join(app.getPath('appData'),'VTubeControl');app.setPath('userData',dir);
-let config=null,identity=null,linkError='Starting',window,tray,quitting=false,servers=[],last={};
+let config=null,identity=null,linkError='Starting',window,tray,quitting=false,shutdownPromise=null,servers=[],last={};
 const frames=new FrameStore();const hex=()=>randomBytes(32).toString('hex');
 const renderer=new ReactiveRenderer(async png=>{if(!config?.enabled||!config.peer)throw Error('Disabled');const r=await requestPeer(config.peer,'PUT','/frame',png);if(!r.ok)throw Error('Upload rejected');});
 const transactions=new SerialQueue();
@@ -64,11 +64,17 @@ function createWindow(){if(window&&!window.isDestroyed()){window.show();return;}
  window.on('close',e=>{if(!quitting){e.preventDefault();window.hide();}});
 }
 function ipc(name,handler){ipcMain.handle(name,async(event,...args)=>{if(event.sender!==window?.webContents||event.senderFrame!==window.webContents.mainFrame)throw Error('Unauthorized UI');return handler(...args);});}
-async function quit(){quitting=true;renderer.stop();await host.stopAll();app.quit();}
+async function quit(){
+ if(shutdownPromise)return shutdownPromise;
+ quitting=true;
+ shutdownPromise=(async()=>{renderer.stop();await host.stopAll();await closeServers();app.quit();})();
+ return shutdownPromise;
+}
 
 function trackingSummary(){
  const t=host.status().tracking||{};
- return t.role==='sender'?`Tracking: ${t.state||'Starting'}`+(t.running?` to ${t.destination}`:''):`Tracking: ${t.state||'Starting'}`;
+ const state=t.role==='sender'?(t.connectionState||t.state):t.state;
+ return t.role==='sender'?`Tracking: ${state||'Starting'}`+(t.running?` to ${t.destination}`:''):`Tracking: ${state||'Starting'}`;
 }
 let trayKey='';
 function updateTray(){
@@ -93,7 +99,7 @@ if(!app.requestSingleInstanceLock()){app.quit();}else{
   // 1. Tracking first: it needs nothing else from this app.
   host.add(role==='pantry'
    ?new TrackingSender({exe:join(here,'..','tracking','VTubeInputBridge.exe'),settingsFile:join(dir,'tracking.json')})
-   :new TrackingReceiver({statusFile:join(process.env.ProgramData||'C:\\ProgramData','VTubeInputRelay','status.json')}));
+   :new TrackingReceiver({exe:join(here,'..','relay','vts_input_relay.exe'),configFile:join(dir,'relay-config.json'),tokenFile:join(process.env.LOCALAPPDATA||join(app.getPath('home'),'AppData','Local'),'VTubeInputRelay','vts-token.txt'),statusFile:join(process.env.LOCALAPPDATA||join(app.getPath('home'),'AppData','Local'),'VTubeInputRelay','status.json')}));
   await host.start('tracking');
   // 2. The secure link and the features that use it.
   try{await startLink(role);linkError=null;}catch(e){linkError=e?.message||String(e);}
@@ -121,6 +127,5 @@ if(!app.requestSingleInstanceLock()){app.quit();}else{
   // Sign-in launches pass --background so the app starts in the tray.
   if(!process.argv.includes('--background'))createWindow();
  }).catch(async e=>{await dialog.showMessageBox({type:'error',title:`${APP_NAME} could not start`,message:e?.message||String(e)});await quit();});
- app.on('before-quit',()=>{quitting=true;renderer.stop();for(const s of servers)s.close();});
- app.on('will-quit',()=>{host.stopAll();});
+ app.on('before-quit',event=>{if(!quitting){event.preventDefault();void quit();}});
 }
