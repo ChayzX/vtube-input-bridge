@@ -57,6 +57,12 @@ async function startLink(role){
  identity=await loadProtected(identityFile,async()=>({localToken:hex(),networkToken:hex(),overlayToken:hex(),cert:await selfsigned.generate([{name:'commonName',value:'VTube Control'}],{keySize:2048,days:3650,algorithm:'sha256'})}));
  await saveProtected(identityFile,identity);await startServers();
 }
+// The gaming PC starts rendering reactives by itself: at launch, and again after saving settings or pairing (both
+// restart the link, which stops the renderer). A failure is shown in the renderer state; it never blocks the app.
+function autoStartRenderer(){
+ if(linkError||config?.role!=='pantry'||!config.enabled||!config.peer||!config.reactive.enabled||!config.reactive.url)return;
+ dispatcher.execute({id:randomUUID(),expiresAt:Date.now()+10000,target:'local',action:'reactive.start',args:{}}).catch(()=>{});
+}
 const requireLink=()=>{if(linkError)throw new Error('Stream Deck controls and reactives are unavailable: '+linkError);};
 
 function createWindow(){if(window&&!window.isDestroyed()){window.show();return;}
@@ -111,14 +117,14 @@ if(!app.requestSingleInstanceLock()){app.quit();}else{
   host.add(createReactivesPlugin({getConfig:()=>config,linkError:()=>linkError,renderer,frames,
    setVisible:(visible,deadline)=>transactions.runWithDeadline(deadline,async()=>{config.reactive.visible=visible;await saveProtected(settingsFile,config);return visible;}),
    clearPeerFrame:()=>requestPeer(config.peer,'DELETE','/frame')}));
-  await host.start('controls');await host.start('reactives');
+  await host.start('controls');await host.start('reactives');autoStartRenderer();
 
   ipc('control:get',()=>({role,linkError,plugins:host.status(),status:status(),
    config:config&&{...config,peer:config.peer?{host:config.peer.host,port:config.peer.port,pin:config.peer.pin}:null,obs:{...config.obs,password:config.obs.password?'••••••••':''},vts:{...config.vts,token:undefined}},
    overlayUrl:identity?`http://127.0.0.1:5058/overlay/${identity.overlayToken}`:''}));
-  ipc('control:save',value=>{requireLink();return transactions.run(async()=>{const next={...value,peer:config.peer,obs:{...value.obs,password:value.obs.password==='••••••••'?config.obs.password:value.obs.password},vts:{...value.vts,token:config.vts.token}};validateConfig(next);config=next;await saveProtected(settingsFile,config);await startServers();return status();});});
+  ipc('control:save',value=>{requireLink();return transactions.run(async()=>{const next={...value,peer:config.peer,obs:{...value.obs,password:value.obs.password==='••••••••'?config.obs.password:value.obs.password},vts:{...value.vts,token:config.vts.token}};validateConfig(next);config=next;await saveProtected(settingsFile,config);await startServers();autoStartRenderer();return status();});});
   ipc('control:export',async()=>{requireLink();const chosen=await dialog.showSaveDialog(window,{title:'Export pairing file — contains a connection credential',defaultPath:`${config.role}-pairing.json`});if(chosen.canceled)return;const pin=createHash('sha256').update(new X509Certificate(identity.cert.cert).raw).digest('hex');await writeFile(chosen.filePath,JSON.stringify({host:config.ownIp,port:5056,pin,token:identity.networkToken},null,2),{mode:0o600});return 'Exported. Transfer securely, import on the other PC, then delete the transfer copy.';});
-  ipc('control:import',async()=>{requireLink();const chosen=await dialog.showOpenDialog(window,{title:'Import the OTHER PC’s pairing file',properties:['openFile'],filters:[{name:'Pairing',extensions:['json']}]});if(chosen.canceled)return;const bytes=await readFile(chosen.filePaths[0]);if(bytes.length>8192)throw Error('Pairing file too large');const peer=validatePair(JSON.parse(bytes));return transactions.run(async()=>{validateConfig({...config,peer});config.peer=peer;await saveProtected(settingsFile,config);await startServers();return 'Paired';});});
+  ipc('control:import',async()=>{requireLink();const chosen=await dialog.showOpenDialog(window,{title:'Import the OTHER PC’s pairing file',properties:['openFile'],filters:[{name:'Pairing',extensions:['json']}]});if(chosen.canceled)return;const bytes=await readFile(chosen.filePaths[0]);if(bytes.length>8192)throw Error('Pairing file too large');const peer=validatePair(JSON.parse(bytes));return transactions.run(async()=>{const first=!config.peer;validateConfig({...config,peer});config.peer=peer;if(first)config.enabled=true;await saveProtected(settingsFile,config);await startServers();autoStartRenderer();return first?'Paired. Stream Deck controls are on.':'Paired';});});
   ipc('control:login',()=>{requireLink();if(config.role!=='pantry')throw Error('Log in on Pantry');openFugiLogin();return 'Fugi login window opened';});
   ipc('control:reactive-start',async()=>{requireLink();return dispatcher.execute({id:randomUUID(),expiresAt:Date.now()+10000,target:'local',action:'reactive.start',args:{}});});
   ipc('control:reactive-stop',async()=>{requireLink();return dispatcher.execute({id:randomUUID(),expiresAt:Date.now()+10000,target:'local',action:'reactive.stop',args:{}});});

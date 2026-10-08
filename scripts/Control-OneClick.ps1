@@ -200,7 +200,7 @@ try {
     $nl = [Environment]::NewLine
     Say ''
     Say ('VTube Input Bridge ' + $Version + ' is installed.') 'Green'
-    Say 'It starts in the tray at sign-in. Stream Deck controls and reactives stay off until paired and enabled.'
+    Say 'It starts in the tray at sign-in. Stream Deck controls and reactives switch on once the two PCs are paired.'
     Show-Result ('VTube Input Bridge ' + $Version + ' is installed.' + $nl + $nl + 'Click OK to open it. From now on it starts in the system tray when you sign in.') $false
 
     # 5. Open the app only after the dialog, so nothing competes for focus. On the gaming PC it starts sending as the
