@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 export const failure=(code,message=code)=>({ok:false,code,message});
 export class Dispatcher {
- constructor(run,{maxPending=16,maxCache=2048,clock=Date.now}={}) { this.run=run; this.maxPending=maxPending; this.maxCache=maxCache; this.clock=clock; this.entries=new Map(); this.pending=0; this.tail=Promise.resolve(); }
+ constructor(run,{maxPending=16,maxCache=2048,clock=Date.now}={}) { this.run=run; this.maxPending=maxPending; this.maxCache=maxCache; this.clock=clock; this.entries=new Map(); this.pending=0; this.tails=new Map(); }
  execute(c) {
   const now=this.clock();
   // A command from the other PC carries its remaining time (ttl) instead of a wall-clock expiry, so the two PCs'
@@ -18,10 +18,13 @@ export class Dispatcher {
   if(this.pending>=this.maxPending||this.entries.size>=this.maxCache) return Promise.resolve(failure('busy'));
   this.pending++;
   const entry={signature,until:now+60000,done:false};
-  entry.promise=this.tail.then(async()=>{
+  // Commands for one app on one PC run in order; others do not wait behind them (a sleeping other PC or a slow OBS
+  // would otherwise hold up every local press).
+  const key=c.target+':'+c.action.split('.')[0];
+  entry.promise=(this.tails.get(key)||Promise.resolve()).then(async()=>{
    if(c.expiresAt<=this.clock()) return failure('expired');
    try {const data=await this.run(c); return {ok:true,data};} catch(e) {return failure(e.code||'action_failed',e.publicMessage||`Action failed: ${String(e?.message||'unknown error').replace(/\.$/,'')}. It may already have happened; check the target app before pressing again.`);}
   }).finally(()=>{this.pending--;entry.done=true;});
-  this.tail=entry.promise.then(()=>{}); this.entries.set(c.id,entry); return entry.promise;
+  const tail=entry.promise.then(()=>{if(this.tails.get(key)===tail)this.tails.delete(key);}); this.tails.set(key,tail); this.entries.set(c.id,entry); return entry.promise;
  }
 }

@@ -37,6 +37,15 @@ test('queued command expires before its side effect',async()=>{
  await new Promise(r=>setTimeout(r,25)); release(); await first;
  assert.equal((await second).code,'expired'); assert.equal(n,1);
 });
+test('a slow command for one app or the other PC does not hold up the others',async()=>{
+ const held=[];const order=[];const d=new Dispatcher(async c=>{if(c.target==='peer'||c.action==='obs.scene')await new Promise(r=>held.push(r));order.push(c.action);return c.action;});
+ const slow=d.execute(command({id:'poll',target:'peer',action:'bridge.status'}));
+ const started=Date.now();assert.equal((await d.execute(command({id:'press'}))).data,'spotify.next');assert.ok(Date.now()-started<500);
+ // Commands for the same app still run one after another.
+ const a=d.execute(command({id:'s1',action:'obs.scene'}));const b=d.execute(command({id:'s2',action:'obs.scenes'}));await new Promise(r=>setTimeout(r,20));
+ assert.deepEqual(order,['spotify.next']);assert.equal(held.length,2);held.forEach(r=>r());await Promise.all([slow,a,b]);assert.deepEqual(order.slice(1).sort(),['bridge.status','obs.scene','obs.scenes']);
+ assert.equal(d.tails.size,0);
+});
 test('unknown outcomes are not retried',async()=>{
  let n=0; const d=new Dispatcher(async()=>{n++; throw new Error('connection lost');}); const c=command();
  assert.equal((await d.execute(c)).code,'action_failed'); await d.execute(c); assert.equal(n,1);
