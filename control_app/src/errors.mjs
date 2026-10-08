@@ -7,6 +7,7 @@ export function explain(e,app){
  const message=String(e?.message||e||'').trim().replace(/\.$/,'');const code=String(e?.code??'');
  if(unreachable.test(code)||unreachable.test(message))return app==='the other PC'
   ?'Could not reach the other PC. Make sure VTube Input Bridge is running there with controls enabled, and that both PCs are on the network.'
+  :app==='Meld Studio'?'Could not connect to Meld Studio. Make sure Meld Studio is open with Settings > Advanced > Allow remote connections turned on, and check the address in settings.'
   :`Could not connect to ${app}. Make sure ${app} is open and its API is turned on, and check the address in settings.`;
  if(code==='4009'||/authentication failed/i.test(message))return `${app} rejected the password. Re-enter the ${app} WebSocket password in settings.`;
  if(!message)return `${app} failed for an unknown reason.${UNKNOWN}`;

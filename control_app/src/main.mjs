@@ -1,7 +1,7 @@
 import {app,BrowserWindow,Tray,Menu,ipcMain,dialog,safeStorage,nativeImage} from 'electron';
 import {readFile,writeFile,mkdir,rename,copyFile} from 'node:fs/promises';import {join,dirname} from 'node:path';import {fileURLToPath} from 'node:url';import {randomBytes,randomUUID,createHash,X509Certificate} from 'node:crypto';import selfsigned from 'selfsigned';
 import {SerialQueue} from './serial.mjs';import {checkDeadline} from './deadline.mjs';
-import {defaults,validateConfig,validatePair} from './config.mjs';import {Dispatcher} from './commands.mjs';import {FrameStore} from './frames.mjs';import {createApi,createOverlay} from './server.mjs';import {requestPeer} from './client.mjs';import {describing,userError} from './errors.mjs';import {ReactiveRenderer,openFugiLogin} from './reactive.mjs';
+import {defaults,upgradeConfig,validateConfig,validatePair} from './config.mjs';import {Dispatcher} from './commands.mjs';import {FrameStore} from './frames.mjs';import {createApi,createOverlay} from './server.mjs';import {requestPeer} from './client.mjs';import {describing,userError} from './errors.mjs';import {ReactiveRenderer,openFugiLogin} from './reactive.mjs';
 import {PluginHost} from './plugins/host.mjs';import {TrackingSender,TrackingReceiver} from './plugins/tracking.mjs';import {createControlsPlugin} from './plugins/controls.mjs';import {createReactivesPlugin} from './plugins/reactives.mjs';
 
 // One app per PC. Features are plugins (plugins/*.mjs): tracking, Stream Deck controls and reactives. The core here
@@ -52,7 +52,7 @@ async function startServers(){
 // Loads settings and identity and opens the secure link. A failure here disables only controls and reactives.
 async function startLink(role){
  if(!safeStorage.isEncryptionAvailable()||safeStorage.getSelectedStorageBackend?.()==='basic_text')throw Error('Secure credential storage unavailable');
- config=validateConfig(await loadProtected(settingsFile,()=>defaults(role)));
+ config=validateConfig(upgradeConfig(await loadProtected(settingsFile,()=>defaults(role))));
  identity=await loadProtected(identityFile,async()=>({localToken:hex(),networkToken:hex(),overlayToken:hex(),cert:await selfsigned.generate([{name:'commonName',value:'VTube Control'}],{keySize:2048,days:3650,algorithm:'sha256'})}));
  await saveProtected(identityFile,identity);await startServers();
 }

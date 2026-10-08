@@ -5,3 +5,8 @@ test('peer imports require private IPv4, fixed service port and certificate pin'
  for(const override of [{host:'8.8.8.8'},{host:'10.0.0.999'},{port:80},{pin:'anything'},{token:'short'}])assert.throws(()=>validatePair({...good,...override}));
 });
 test('configuration cannot point OBS or VTS at arbitrary hosts',()=>{const c=defaults('canada');assert.throws(()=>validateConfig({...c,obs:{...c.obs,url:'ws://evil.test'}}));assert.throws(()=>validateConfig({...c,vts:{...c.vts,url:'file:///tmp/a'}}));});
+test('settings saved before Meld Studio support load with Meld turned off, and Meld stays on loopback',async()=>{
+ const {upgradeConfig}=await import('../src/config.mjs');const c=defaults('canada');delete c.meld;
+ assert.throws(()=>validateConfig(c));const up=validateConfig(upgradeConfig(c));assert.deepEqual(up.meld,{enabled:false,url:'ws://127.0.0.1:13376'});
+ assert.throws(()=>validateConfig({...up,meld:{enabled:true,url:'ws://10.0.0.5:13376'}}));
+});
