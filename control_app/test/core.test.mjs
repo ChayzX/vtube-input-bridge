@@ -68,4 +68,12 @@ test('failed actions say why instead of a bare "Action failed"', async()=>{
  assert.deepEqual(r,{ok:false,code:'action_failed',message:'Spotify: Spotify is not running.'});
  const bare=await new Dispatcher(async()=>{throw new Error('socket hang up');}).execute(command({id:'why-2'}));
  assert.match(bare.message,/^Action failed: socket hang up\. It may already have happened/);
+test('right-click menu offers cut, copy and paste in text boxes and copy on selected text', async()=>{
+ const {contextMenuTemplate}=await import('../src/contextmenu.mjs');
+ const roles=items=>items.filter(i=>i.role).map(i=>i.role);
+ const field=contextMenuTemplate({isEditable:true,selectionText:'',editFlags:{canCut:false,canCopy:false,canPaste:true,canSelectAll:true}});
+ assert.deepEqual(roles(field),['undo','redo','cut','copy','paste','selectAll']);
+ assert.equal(field.find(i=>i.role==='paste').enabled,true);assert.equal(field.find(i=>i.role==='cut').enabled,false);
+ assert.deepEqual(roles(contextMenuTemplate({isEditable:false,selectionText:'10.0.0.112',editFlags:{canCopy:true}})),['copy','selectAll']);
+ assert.deepEqual(contextMenuTemplate({isEditable:false,selectionText:'',editFlags:{}}),[]);
 });

@@ -1,4 +1,5 @@
 import {app,BrowserWindow,Tray,Menu,ipcMain,dialog,safeStorage,nativeImage} from 'electron';
+import {contextMenuTemplate} from './contextmenu.mjs';
 import {readFile,writeFile,mkdir,rename,copyFile} from 'node:fs/promises';import {join,dirname} from 'node:path';import {fileURLToPath} from 'node:url';import {randomBytes,randomUUID,createHash,X509Certificate} from 'node:crypto';import selfsigned from 'selfsigned';
 import {SerialQueue} from './serial.mjs';import {checkDeadline} from './deadline.mjs';
 import {defaults,upgradeConfig,validateConfig,validatePair} from './config.mjs';import {Dispatcher} from './commands.mjs';import {FrameStore} from './frames.mjs';import {createApi,createOverlay} from './server.mjs';import {requestPeer} from './client.mjs';import {describing,userError} from './errors.mjs';import {ReactiveRenderer,openFugiLogin} from './reactive.mjs';
@@ -60,7 +61,9 @@ const requireLink=()=>{if(linkError)throw new Error('Stream Deck controls and re
 
 function createWindow(){if(window&&!window.isDestroyed()){window.show();return;}
  window=new BrowserWindow({width:760,height:900,title:APP_NAME,webPreferences:{preload:join(here,'preload.cjs'),sandbox:true,nodeIntegration:false,contextIsolation:true}});
- window.webContents.setWindowOpenHandler(()=>({action:'deny'}));window.webContents.on('will-navigate',e=>e.preventDefault());window.loadFile(join(here,'..','ui','index.html'));
+ window.webContents.setWindowOpenHandler(()=>({action:'deny'}));window.webContents.on('will-navigate',e=>e.preventDefault());
+ window.webContents.on('context-menu',(_,params)=>{const items=contextMenuTemplate(params);if(items.length)Menu.buildFromTemplate(items).popup({window});});
+ window.loadFile(join(here,'..','ui','index.html'));
  window.on('close',e=>{if(!quitting){e.preventDefault();window.hide();}});
 }
 function ipc(name,handler){ipcMain.handle(name,async(event,...args)=>{if(event.sender!==window?.webContents||event.senderFrame!==window.webContents.mainFrame)throw Error('Unauthorized UI');return handler(...args);});}
