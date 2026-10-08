@@ -39,7 +39,8 @@ Set-Content -LiteralPath $xmlPath -Value $xml -Encoding UTF8
 $record = [ordered]@{schema=1;taskName=$taskName;taskPath=$task.TaskPath;source=$ip.ToString();taskXml=$xmlPath;configPath=$configPath;created=(Get-Date).ToString('o')}
 $record | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $recordPath -Encoding UTF8
 $temp = $configPath + '.new'
-@{source=$ip.ToString()} | ConvertTo-Json | Set-Content -LiteralPath $temp -Encoding UTF8
+# No byte-order mark: -Encoding UTF8 adds one in Windows PowerShell and the app's JSON.parse rejects it.
+[IO.File]::WriteAllText($temp, (@{source=$ip.ToString()} | ConvertTo-Json), (New-Object Text.UTF8Encoding $false))
 Move-Item -LiteralPath $temp -Destination $configPath
 try {
     if ($task.State -eq 'Running') {
