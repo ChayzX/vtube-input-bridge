@@ -7,10 +7,13 @@ export class TrackingSender {
  constructor({exe,settingsFile,spawn=nodeSpawn,readFile=fsReadFile,writeFile=fsWriteFile,restartDelays=[1000,2000,5000,10000,30000],sendRetryDelays=[1000,2000,5000,10000,30000],timers=globalThis}){
   Object.assign(this,{exe,settingsFile,spawnFn:spawn,readFile,writeFile,restartDelays,sendRetryDelays,timers});
   this.id='tracking';this.name='Tracking';
-  this.settings={startSendingOnLaunch:true};this.wantSending=false;this.helper=null;this.child=null;
+  this.settings={startSendingOnLaunch:true};this.wantSending=false;this.requested=null;this.helper=null;this.child=null;
   this.state='Starting';this.lastError='';this.fatal='';this.restarts=0;this.restartTimer=null;this.sendRetryTimer=null;this.sendRetries=0;this.stopping=false;
   this.ui={
-   start:async({destination})=>{const address=ipv4(destination??this.helper?.destination);this.wantSending=true;this.clearSendRetry();this.sentStart=true;try{const result=await this.send(`start ${address}`);this.scheduleSendRetry();return result;}catch(e){this.sentStart=false;this.scheduleSendRetry();throw e;}},
+   start:async({destination})=>{const address=ipv4(destination??this.helper?.destination);this.requested=address;this.wantSending=true;this.clearSendRetry();
+    // Before the helper's first status line, the start goes out when it reports (handle below).
+    if(!this.child||!this.helper){this.sentStart=false;return this.status();}
+    this.sentStart=true;try{const result=await this.send(`start ${address}`);this.scheduleSendRetry();return result;}catch(e){this.sentStart=false;this.scheduleSendRetry();throw e;}},
    stop:async()=>{this.wantSending=false;this.sentStart=false;this.clearSendRetry();return this.send('stop');},
    mouse:async({gameMode,sensitivity})=>{
     const value=Number(sensitivity);if(!(value>=0.1&&value<=5))throw new Error('Sensitivity must be between 0.1 and 5.');
@@ -48,7 +51,8 @@ export class TrackingSender {
    if(message.running){this.state='Sending';this.sentStart=false;this.sendRetries=0;this.clearSendRetry();if(message.error)this.lastError=String(message.error);else this.lastError='';}
    else{this.state='Stopped';if(message.error)this.lastError=String(message.error);}
    // Keep retrying local sender start failures while the user still wants tracking enabled.
-   if(this.wantSending&&!message.running&&!this.sentStart&&!message.legacy){this.sentStart=true;this.send(`start ${message.destination}`).catch(e=>{this.lastError=e.message;}).finally(()=>this.scheduleSendRetry());}
+   const to=this.requested||message.destination;
+   if(this.wantSending&&!message.running&&!this.sentStart&&!message.legacy&&to){this.sentStart=true;this.send(`start ${to}`).catch(e=>{this.lastError=e.message;}).finally(()=>this.scheduleSendRetry());}
   }else if(message.type==='error'){this.lastError=String(message.message);if(this.wantSending&&!this.helper?.running)this.scheduleSendRetry();}
   else if(message.type==='fatal'){this.fatal=String(message.message);this.lastError=this.fatal;}
  }
@@ -56,7 +60,7 @@ export class TrackingSender {
  scheduleSendRetry(){
   if(this.stopping||!this.wantSending||this.sendRetryTimer||this.helper?.running||this.helper?.legacy)return;
   const delay=this.sendRetryDelays[Math.min(this.sendRetries,this.sendRetryDelays.length-1)];this.sendRetries++;
-  this.sendRetryTimer=this.timers.setTimeout(()=>{this.sendRetryTimer=null;if(!this.wantSending||this.helper?.running||this.helper?.legacy)return;this.sentStart=false;this.handle(JSON.stringify({type:'status',...this.helper,running:false}));},delay);
+  this.sendRetryTimer=this.timers.setTimeout(()=>{this.sendRetryTimer=null;if(!this.wantSending||!this.helper||this.helper.running||this.helper.legacy)return;this.sentStart=false;this.handle(JSON.stringify({type:'status',...this.helper,running:false}));},delay);
  }
  scheduleRestart(){
   if(this.stopping||this.restartTimer)return;

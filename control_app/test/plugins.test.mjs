@@ -177,3 +177,17 @@ test('reactive refusals say why and never "it may already have happened"', async
  assert.equal((await run(pantry,'reactive.start')).started,1);
  assert.equal((await run({...pantry,role:'canada'},'reactive.hide')).r.ok,true);
 });
+
+test('Start pressed before the tracking helper is ready sends the typed address once it reports', async()=>{
+ const written=[];let child;
+ const spawn=()=>{child=new EventEmitter();child.stdin=new PassThrough();child.stdout=new PassThrough();child.exitCode=null;child.signalCode=null;child.stdin.on('data',b=>written.push(...String(b).trim().split('\n')));child.stdin.on('finish',()=>setImmediate(()=>{child.exitCode=0;child.emit('exit',0);}));return child;};
+ const s=new TrackingSender({exe:'x',settingsFile:join(tmpdir(),'vtc-missing','tracking.json'),spawn,sendRetryDelays:[20]});
+ await s.start();s.settings.startSendingOnLaunch=false;s.wantSending=false;
+ try{
+  // The helper has not printed its first status yet.
+  assert.equal((await s.ui.start({destination:'10.0.0.150'})).state,'Starting');
+  await new Promise(r=>setTimeout(r,60));assert.deepEqual(written,[]);
+  child.stdout.write(JSON.stringify({type:'status',running:false,destination:'10.0.0.77'})+'\n');
+  await until(()=>written.length>0,'start command');assert.deepEqual(written,['start 10.0.0.150']);
+ }finally{await s.stop();}
+});
