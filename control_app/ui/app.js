@@ -30,8 +30,10 @@ el('gameMouse').onchange=mouse;el('sensitivity').onchange=()=>{editing=false;mou
 for(const id of ['destination','sensitivity']){el(id).onfocus=()=>{editing=true;};el(id).onblur=()=>{editing=false;};}
 
 // Stream Deck controls and reactives: unavailable (and disabled here) when the secure link could not start.
+// A failed bind (this PC's address not up yet) is retried by the app and leaves the form editable to fix the address.
+function renderProblem(r){const text=r.linkError?'Unavailable: '+r.linkError.replace(/\.?$/,'.')+' Tracking is not affected.':r.bindError?'Stream Deck controls are not running yet: '+r.bindError:'';el('linkError').hidden=!text;el('linkError').textContent=text;}
 function renderControls(r){
- el('linkError').hidden=!r.linkError;el('linkError').textContent=r.linkError?'Unavailable: '+r.linkError.replace(/\.?$/,'.')+' Tracking is not affected.':'';
+ renderProblem(r);
  for(const node of document.querySelectorAll('#settings input, #settings select, #settings button, fieldset button, #target'))node.disabled=!!r.linkError;
  el('status').textContent=JSON.stringify(r.plugins,null,2);
  if(!r.config)return;saved=r.config;
@@ -41,5 +43,5 @@ async function refresh(){const r=await window.control.get();role=r.role;el('role
 el('settings').addEventListener('submit',event=>{event.preventDefault();perform(async()=>{const c={...saved,role:el('role').value,ownIp:el('ownIp').value.trim(),enabled:el('enabled').checked,obs:{enabled:el('obsEnabled').checked,url:el('obsUrl').value,password:el('obsPassword').value},vts:{...saved.vts,enabled:el('vtsEnabled').checked,url:el('vtsUrl').value},meld:{enabled:el('meldEnabled').checked,url:el('meldUrl').value},spotify:{enabled:el('spotifyEnabled').checked},reactive:{...saved.reactive,enabled:el('reactiveEnabled').checked,url:el('reactiveUrl').value}};await window.control.save(c);await refresh();return 'Saved';});});
 for(const [id,fn] of [['export','exportPair'],['import','importPair'],['login','login'],['startReactive','startReactive'],['stopReactive','stopReactive']])el(id).onclick=()=>perform(async()=>{const r=await window.control[fn]();if(id==='import')await refresh();return r;});
 for(const [id,action] of [['scenes','obs.scenes'],['meldScenes','meld.scenes'],['hotkeys','vts.hotkeys'],['pause','spotify.pause']])el(id).onclick=()=>perform(()=>window.control.command({target:el('target').value,action,args:{}}));
-setInterval(()=>window.control.get().then(r=>{renderTracking(r.plugins.tracking);el('status').textContent=JSON.stringify(r.plugins,null,2);}).catch(()=>{}),1000);
+setInterval(()=>window.control.get().then(r=>{renderTracking(r.plugins.tracking);renderProblem(r);el('status').textContent=JSON.stringify(r.plugins,null,2);}).catch(()=>{}),1000);
 refresh().catch(e=>show(e.message));
