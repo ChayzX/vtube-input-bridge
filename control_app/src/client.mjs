@@ -19,10 +19,19 @@ export function requestPeer(pair,method,path,body) {
   req.setTimeout(6000,()=>req.destroy(new Error('Peer timeout; outcome unknown'))); req.on('error',e=>{agent.destroy();reject(e);}); req.end(data);
  });
 }
+// Refusals that come back as a bare code: from the link itself (wrong token or address, unknown route, from an older
+// version) or from the dispatcher before the action ran.
+const update='Update VTube Input Bridge on both PCs to the same version.';
+const refusals={unauthorized:'the pairing is out of date. Export each PC’s pairing file and import it on the other PC again.',
+ forbidden:'this PC’s address does not match its pairing there. If this PC’s IP address changed, export its pairing file again and import it on the other PC.',
+ not_found:`it does not support this request. ${update}`,invalid_request:`it could not read the request. ${update}`,invalid_target:`it could not read the request. ${update}`,
+ invalid_command:`it could not read the request. ${update}`,too_large:'the request was too large.',id_conflict:'the request was refused as a duplicate. Press again.',
+ expired:'the command expired before it could run; nothing happened. Press again.',invalid_expiry:`the command's time limit was refused. ${update}`,
+ busy:'it is busy with other commands; nothing happened. Try again in a moment.'};
 // Runs a command on the other PC. The remaining time travels instead of the absolute expiry, so the two PCs' clocks
 // need not agree.
 export async function forwardCommand(pair,{expiresAt,...c},now=Date.now()){
  const result=await describing('the other PC',()=>requestPeer(pair,'POST','/command',{...c,target:'local',ttl:expiresAt-now}));
- if(!result.ok){const e=new Error('On the other PC: '+result.message);e.code=result.code;e.publicMessage=e.message;throw e;}
+ if(!result.ok){const e=new Error('On the other PC: '+(result.message&&result.message!==result.code?result.message:refusals[result.code]||`refused (${String(result.code||'no reason given').slice(0,40)}). Update VTube Input Bridge on both PCs.`));e.code=result.code;e.publicMessage=e.message;throw e;}
  return result.data;
 }

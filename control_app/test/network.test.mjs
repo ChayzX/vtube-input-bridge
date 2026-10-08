@@ -39,3 +39,16 @@ test('commands reach the other PC when its clock is behind or ahead',async()=>{
   finally{await close(s);}
  }
 });
+test('refusals from the other PC say what to do, never "undefined"',async()=>{
+ const {cert,pin}=await peerCert();const c={id:'r1',target:'peer',action:'obs.scene',args:{scene:'A'},expiresAt:Date.now()+9000};
+ const cases=[[{source:'10.0.0.112'},{},/address does not match its pairing/,'forbidden'],[{},{token:'b'.repeat(64)},/pairing is out of date/,'unauthorized']];
+ for(const [server,pair,message,code] of cases){
+  const s=createApi({token,tls:cert,source:'127.0.0.1',dispatcher:new Dispatcher(async()=>({})),...server});const port=await listen(s);
+  try{await assert.rejects(forwardCommand({host:'127.0.0.1',port,token,pin,...pair},c),e=>e.code===code&&message.test(e.publicMessage)&&!/undefined/.test(e.publicMessage));}finally{await close(s);}
+ }
+ const busy=createApi({token,tls:cert,source:'127.0.0.1',dispatcher:{execute:async()=>({ok:false,code:'busy',message:'busy'})}});const port=await listen(busy);
+ try{await assert.rejects(forwardCommand({host:'127.0.0.1',port,token,pin},c),e=>/busy with other commands/.test(e.publicMessage));
+  const shown=createApi({token,tls:cert,source:'127.0.0.1',dispatcher:{execute:async()=>({ok:false,code:'weird'})}});const p2=await listen(shown);
+  try{await assert.rejects(forwardCommand({host:'127.0.0.1',port:p2,token,pin},c),e=>e.publicMessage==='On the other PC: refused (weird). Update VTube Input Bridge on both PCs.');}finally{await close(shown);}
+ }finally{await close(busy);}
+});
