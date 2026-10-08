@@ -39,6 +39,18 @@ This route is experimental. Fugi’s public embed code requests local Discord co
 
 Closing the app window keeps it in the tray. **Exit VTube Input Bridge** stops the whole app, tracking included. Saving settings stops the experimental renderer; restart it explicitly. Rendering does not auto-start after Windows logon.
 
+## Getting the separate tracking app back
+
+`scripts/Restore-SeparateTracking.cmd` restores the separate VTube Input Bridge window after a failed or unwanted update. Double-click it as the signed-in user; it needs no administrator rights.
+- It detects the PC: the stream PC is the one with the VTube Input Relay service.
+- It stops the new app and removes it from sign-in, setting the old entry aside in `%LOCALAPPDATA%\VTubeControl\retired`.
+- It finds the old app. It checks where the saved sign-in entry pointed, then the install folders, Downloads, Desktop and Documents, then the new install's own copy. As a last resort it uses a released copy embedded in the restore file and checked by SHA256.
+- It copies the app to `%LOCALAPPDATA%\Programs\VTubeInputBridge`, restores its sign-in entry (and its shortcuts on the gaming PC), and starts it.
+
+It deletes no program files and never changes `vts_input_relay`. Rebuild the file with `scripts/New-RestoreTool.ps1 -ExePath <VTubeInputBridge.exe> -Version <tag>`.
+
+Since this fix, the one-click installer installs the new app before retiring the old one. If the install fails, the old app keeps running.
+
 ## Fast disable and full rollback
 
 Fast disable: choose **Disable Stream Deck controls** from the tray. Mouse/keyboard tracking keeps running; **Exit VTube Input Bridge** stops tracking too. Remove only the new bridge-command buttons/plugin if desired.
