@@ -20,6 +20,7 @@ exit /b %VTF_RESULT%
 #   1. stops the app and the wrongly restored sender, removes the sender from sign-in and its shortcuts (set aside);
 #   2. recreates relay-config.json from the migration record (else the old firewall rule, else 10.0.0.112);
 #   3. runs the newest Install-VTubeInputBridge-StreamPC.cmd from Downloads or Desktop, then reports.
+# If the old task is still there, it skips 1-2 and only runs the installer, which migrates the task.
 # Run it as the signed-in streaming user, without administrator rights. It never deletes program files. Keep it
 # Windows PowerShell 5.1 compatible, plain ASCII, and free of the percent sign: Fix-StreamPC.cmd embeds it.
 $ErrorActionPreference = 'Stop'
@@ -53,83 +54,86 @@ try {
         Sort-Object LastWriteTime -Descending | Select-Object -First 1
     if (-not $installer) { throw 'Install-VTubeInputBridge-StreamPC.cmd was not found in Downloads or on the Desktop. Put the newest one there and run this again. Nothing was changed.' }
     Say ('Using installer: ' + $installer.FullName + ' (' + $installer.LastWriteTime + ')')
-    if (Get-Command Get-ScheduledTask -ErrorAction SilentlyContinue) {
-        if (Get-ScheduledTask -TaskName 'VTube Input Relay' -ErrorAction SilentlyContinue) {
-            Say 'The old VTube Input Relay task is present, so no repair is needed: running the installer, which migrates it.' 'Yellow'
-        }
+    # With the old task still present the installer migrates it, and the migration refuses an existing
+    # relay-config.json, so the repairs below (meant for a PC whose task is gone) are skipped.
+    $legacyTask = (Get-Command Get-ScheduledTask -ErrorAction SilentlyContinue) -and (Get-ScheduledTask -TaskName 'VTube Input Relay' -ErrorAction SilentlyContinue)
+    if ($legacyTask) {
+        Say 'The old VTube Input Relay task is present, so no repair is needed: running the installer, which migrates it.' 'Yellow'
     }
 
-    # 1. Stop the app and the separate window (here: the sender the restore set up by mistake), then take the sender
-    #    off sign-in and set its shortcuts aside. The installer creates the app's own shortcuts.
-    foreach ($name in @('VTubeControl', 'VTubeInputBridge')) {
-        $running = @(Get-Process $name -ErrorAction SilentlyContinue)
-        if ($running.Count -gt 0) {
-            $running | Stop-Process -Force
-            $running | Wait-Process -Timeout 10 -ErrorAction SilentlyContinue
-            Say ('Stopped ' + $name + '.')
-        }
-    }
-    New-Item -ItemType Directory -Force -Path $retired | Out-Null
-    $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
-    $run = Get-Item -Path $runKey -ErrorAction SilentlyContinue
-    if ($run -and ($run.GetValueNames() -contains 'VTube Input Bridge')) {
-        $value = [string]$run.GetValue('VTube Input Bridge')
-        if ($value -like '*--sender*') {
-            Set-Content -LiteralPath (Join-Path $retired ($stamp + '-VTube Input Bridge.run.txt')) -Value $value
-            Remove-ItemProperty -Path $runKey -Name 'VTube Input Bridge'
-            Say 'Removed the gaming PC sender from sign-in on this stream PC.'
-        }
-    }
-    foreach ($folder in @([Environment]::GetFolderPath('DesktopDirectory'), [Environment]::GetFolderPath('Programs'))) {
-        if ([string]::IsNullOrWhiteSpace($folder)) { continue }
-        $link = Join-Path $folder 'VTube Input Bridge.lnk'
-        if (Test-Path -LiteralPath $link) {
-            Copy-Item -LiteralPath $link -Destination (Join-Path $retired ($stamp + '-VTube Input Bridge.lnk')) -Force
-            Remove-Item -LiteralPath $link
-        }
-    }
-
-    # A version folder without its app is left from an interrupted install; the installer would refuse to reuse it.
-    $versions = Join-Path $localRoot 'versions'
-    if (Test-Path -LiteralPath $versions) {
-        foreach ($dir in @(Get-ChildItem -LiteralPath $versions -Directory -ErrorAction SilentlyContinue)) {
-            if (-not (Test-Path -LiteralPath (Join-Path $dir.FullName 'VTubeControl.exe'))) {
-                Move-Item -LiteralPath $dir.FullName -Destination (Join-Path $retired ($stamp + '-incomplete-' + $dir.Name))
-                Say ('Set aside an incomplete install: ' + $dir.Name)
+    if (-not $legacyTask) {
+        # 1. Stop the app and the separate window (here: the sender the restore set up by mistake), then take the sender
+        #    off sign-in and set its shortcuts aside. The installer creates the app's own shortcuts.
+        foreach ($name in @('VTubeControl', 'VTubeInputBridge')) {
+            $running = @(Get-Process $name -ErrorAction SilentlyContinue)
+            if ($running.Count -gt 0) {
+                $running | Stop-Process -Force
+                $running | Wait-Process -Timeout 10 -ErrorAction SilentlyContinue
+                Say ('Stopped ' + $name + '.')
             }
         }
-    }
+        New-Item -ItemType Directory -Force -Path $retired | Out-Null
+        $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+        $run = Get-Item -Path $runKey -ErrorAction SilentlyContinue
+        if ($run -and ($run.GetValueNames() -contains 'VTube Input Bridge')) {
+            $value = [string]$run.GetValue('VTube Input Bridge')
+            if ($value -like '*--sender*') {
+                Set-Content -LiteralPath (Join-Path $retired ($stamp + '-VTube Input Bridge.run.txt')) -Value $value
+                Remove-ItemProperty -Path $runKey -Name 'VTube Input Bridge'
+                Say 'Removed the gaming PC sender from sign-in on this stream PC.'
+            }
+        }
+        foreach ($folder in @([Environment]::GetFolderPath('DesktopDirectory'), [Environment]::GetFolderPath('Programs'))) {
+            if ([string]::IsNullOrWhiteSpace($folder)) { continue }
+            $link = Join-Path $folder 'VTube Input Bridge.lnk'
+            if (Test-Path -LiteralPath $link) {
+                Copy-Item -LiteralPath $link -Destination (Join-Path $retired ($stamp + '-VTube Input Bridge.lnk')) -Force
+                Remove-Item -LiteralPath $link
+            }
+        }
 
-    # 2. Recreate relay-config.json (the gaming PC address the app's relay accepts input from) if it is missing.
-    $configPath = Join-Path $appData 'relay-config.json'
-    if (Test-Path -LiteralPath $configPath) {
-        Say ('Relay settings already present: ' + $configPath)
-    } else {
-        $source = $null; $from = ''
-        $record = Get-ChildItem -LiteralPath $retired -Filter 'migration.json' -Recurse -ErrorAction SilentlyContinue |
-            Sort-Object LastWriteTime -Descending | Select-Object -First 1
-        if ($record) {
-            try { $source = [string]((Get-Content -LiteralPath $record.FullName -Raw | ConvertFrom-Json).source); $from = 'the migration record' } catch { $source = $null }
-        }
-        if (-not $source -and (Get-Command Get-NetFirewallRule -ErrorAction SilentlyContinue)) {
-            try {
-                $rule = Get-NetFirewallRule -DisplayName 'VTube Input Relay LAN' -ErrorAction SilentlyContinue | Select-Object -First 1
-                if ($rule) {
-                    $address = @(($rule | Get-NetFirewallAddressFilter).RemoteAddress) | Select-Object -First 1
-                    if ($address) { $source = [string]$address; $from = 'the old firewall rule' }
+        # A version folder without its app is left from an interrupted install; the installer would refuse to reuse it.
+        $versions = Join-Path $localRoot 'versions'
+        if (Test-Path -LiteralPath $versions) {
+            foreach ($dir in @(Get-ChildItem -LiteralPath $versions -Directory -ErrorAction SilentlyContinue)) {
+                if (-not (Test-Path -LiteralPath (Join-Path $dir.FullName 'VTubeControl.exe'))) {
+                    Move-Item -LiteralPath $dir.FullName -Destination (Join-Path $retired ($stamp + '-incomplete-' + $dir.Name))
+                    Say ('Set aside an incomplete install: ' + $dir.Name)
                 }
-            } catch { $source = $null }
+            }
         }
-        $ip = $null
-        if (-not $source -or -not [Net.IPAddress]::TryParse($source, [ref]$ip) -or $ip.AddressFamily -ne [Net.Sockets.AddressFamily]::InterNetwork) {
-            $source = '10.0.0.112'; $from = 'the documented gaming PC address'
-        } else { $source = $ip.ToString() }
-        New-Item -ItemType Directory -Force -Path $appData | Out-Null
-        $temp = $configPath + '.new'
-        # No byte-order mark: Windows PowerShell's -Encoding UTF8 adds one, and the app's JSON.parse rejects it.
-        [IO.File]::WriteAllText($temp, (@{ source = $source } | ConvertTo-Json), (New-Object Text.UTF8Encoding $false))
-        Move-Item -LiteralPath $temp -Destination $configPath -Force
-        Say ('Recreated relay settings: gaming PC ' + $source + ' (from ' + $from + ').') 'Green'
+
+        # 2. Recreate relay-config.json (the gaming PC address the app's relay accepts input from) if it is missing.
+        $configPath = Join-Path $appData 'relay-config.json'
+        if (Test-Path -LiteralPath $configPath) {
+            Say ('Relay settings already present: ' + $configPath)
+        } else {
+            $source = $null; $from = ''
+            $record = Get-ChildItem -LiteralPath $retired -Filter 'migration.json' -Recurse -ErrorAction SilentlyContinue |
+                Sort-Object LastWriteTime -Descending | Select-Object -First 1
+            if ($record) {
+                try { $source = [string]((Get-Content -LiteralPath $record.FullName -Raw | ConvertFrom-Json).source); $from = 'the migration record' } catch { $source = $null }
+            }
+            if (-not $source -and (Get-Command Get-NetFirewallRule -ErrorAction SilentlyContinue)) {
+                try {
+                    $rule = Get-NetFirewallRule -DisplayName 'VTube Input Relay LAN' -ErrorAction SilentlyContinue | Select-Object -First 1
+                    if ($rule) {
+                        $address = @(($rule | Get-NetFirewallAddressFilter).RemoteAddress) | Select-Object -First 1
+                        if ($address) { $source = [string]$address; $from = 'the old firewall rule' }
+                    }
+                } catch { $source = $null }
+            }
+            $ip = $null
+            if (-not $source -or -not [Net.IPAddress]::TryParse($source, [ref]$ip) -or $ip.AddressFamily -ne [Net.Sockets.AddressFamily]::InterNetwork) {
+                $source = '10.0.0.112'; $from = 'the documented gaming PC address'
+            } else { $source = $ip.ToString() }
+            New-Item -ItemType Directory -Force -Path $appData | Out-Null
+            $temp = $configPath + '.new'
+            # No byte-order mark: Windows PowerShell's -Encoding UTF8 adds one, and the app's JSON.parse rejects it.
+            [IO.File]::WriteAllText($temp, (@{ source = $source } | ConvertTo-Json), (New-Object Text.UTF8Encoding $false))
+            Move-Item -LiteralPath $temp -Destination $configPath -Force
+            Say ('Recreated relay settings: gaming PC ' + $source + ' (from ' + $from + ').') 'Green'
+        }
     }
 
     # 3. Finish the update with the newest installer. Its own "press any key" is skipped (input from NUL).
