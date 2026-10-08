@@ -1,12 +1,14 @@
 // Turns an error from OBS, VTube Studio, Spotify or the other PC into one sentence saying what went wrong and what to
 // do. Only a reason that could follow a partial action keeps the "check before pressing again" warning.
 const UNKNOWN=' It may already have happened; check the target app before pressing again.';
-const unreachable=/ECONNREFUSED|EHOSTUNREACH|ENETUNREACH|ENOTFOUND|EADDRNOTAVAIL/;
+// "Peer connection timeout" is the TLS connect to the other PC timing out (as a firewall dropping it does): no request
+// was sent yet.
+const unreachable=/ECONNREFUSED|EHOSTUNREACH|ENETUNREACH|ENOTFOUND|EADDRNOTAVAIL|Peer connection timeout/;
 export function explain(e,app){
  if(e?.publicMessage)return e.publicMessage;
  const message=String(e?.message||e||'').trim().replace(/\.$/,'');const code=String(e?.code??'');
  if(unreachable.test(code)||unreachable.test(message))return app==='the other PC'
-  ?'Could not reach the other PC. Make sure VTube Input Bridge is running there with controls enabled, and that both PCs are on the network.'
+  ?'Could not reach the other PC. Make sure VTube Input Bridge is running there with controls enabled, that both PCs are on the network, and that Windows Firewall on the other PC allows VTube Input Bridge on private networks (TCP 5056).'
   :app==='Meld Studio'?'Could not connect to Meld Studio. Make sure Meld Studio is open with Settings > Advanced > Allow remote connections turned on, and check the address in settings.'
   :`Could not connect to ${app}. Make sure ${app} is open and its API is turned on, and check the address in settings.`;
  if(code==='4009'||/authentication failed/i.test(message))return `${app} rejected the password. Re-enter the ${app} WebSocket password in settings.`;

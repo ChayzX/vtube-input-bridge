@@ -139,6 +139,31 @@ try {
         throw ('The app could not be installed: ' + $_.Exception.Message + ' The previous apps were left in place.')
     }
 
+    # 2b. Let the other PC reach this one on TCP 5056 (the secure link between the PCs). Without a rule Windows asks the
+    #     first time the app listens, possibly while it is hidden in the tray, and a cancelled prompt blocks the link.
+    #     The rule is for this version's app on private networks from this subnet; the app itself accepts only the
+    #     paired PC's address and token. It is replaced on each upgrade. A refusal is a warning, not a failure.
+    try {
+        $hasRule = $false
+        if (Get-Command Get-NetFirewallRule -ErrorAction SilentlyContinue) {
+            $hasRule = @(Get-NetFirewallRule -Group 'VTube Input Bridge' -ErrorAction SilentlyContinue | Get-NetFirewallApplicationFilter |
+                Where-Object { $_.Program -eq $exe }).Count -gt 0
+        }
+        if (-not $hasRule) {
+            Say 'Windows will ask permission to let the other PC connect to VTube Input Bridge (TCP 5056, private networks).' 'Yellow'
+            $quoted = $exe.Replace("'", "''")
+            $rule = "Get-NetFirewallRule -Group 'VTube Input Bridge' -ErrorAction SilentlyContinue | Remove-NetFirewallRule; " +
+                "New-NetFirewallRule -DisplayName 'VTube Input Bridge link between the PCs' -Group 'VTube Input Bridge' -Direction Inbound -Action Allow " +
+                "-Protocol TCP -LocalPort 5056 -RemoteAddress LocalSubnet -Program '" + $quoted + "' -Profile Private | Out-Null"
+            $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($rule))
+            $process = Start-Process -FilePath 'powershell.exe' -Verb RunAs -Wait -PassThru -ArgumentList ('-NoProfile -ExecutionPolicy Bypass -EncodedCommand ' + $encoded)
+            if ($process.ExitCode -ne 0) { throw ('exit code ' + $process.ExitCode) }
+            Say 'Added the firewall rule for the link between the PCs.' 'Green'
+        }
+    } catch {
+        Say ('Warning: the firewall rule was not added (' + $_.Exception.Message + '). If Windows asks whether VTube Input Bridge may use the network, allow it on private networks; otherwise the other PC cannot reach this one.') 'Yellow'
+    }
+
     # 3. Now retire the separate apps this one replaces. Removed sign-in entries and shortcuts are copied to $retired
     #    first. A problem here is a warning, not a failure: the new app is installed, and whatever was not retired
     #    keeps working. Tracking settings (address, game mouse mode) carry over: the new app reads the same files.

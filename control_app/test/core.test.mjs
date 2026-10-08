@@ -77,6 +77,7 @@ test('failed actions say why instead of a bare "Action failed"', async()=>{
  const refused=Object.assign(new Error('connect ECONNREFUSED 127.0.0.1:4455'),{code:-1});
  assert.match(explain(refused,'OBS'),/Could not connect to OBS\. Make sure OBS is open/);
  assert.match(explain(Object.assign(new Error('connect EHOSTUNREACH 10.0.0.119:5056'),{code:'EHOSTUNREACH'}),'the other PC'),/Could not reach the other PC/);
+ assert.match(explain(new Error('Peer connection timeout'),'the other PC'),/Could not reach the other PC.*Windows Firewall.*TCP 5056/);
  assert.match(explain(Object.assign(new Error('Authentication failed.'),{code:4009}),'OBS'),/OBS rejected the password/);
  assert.equal(explain(new Error('No source was found by the name of Gaming.'),'OBS'),'OBS: No source was found by the name of Gaming.');
  assert.match(explain(new Error('VTS timeout; outcome unknown'),'VTube Studio'),/^VTube Studio: VTS timeout; outcome unknown\. It may already have happened/);
