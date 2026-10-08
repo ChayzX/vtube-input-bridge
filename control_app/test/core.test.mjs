@@ -17,6 +17,15 @@ test('expired/far-future/unknown targets are rejected before dispatch', async()=
  for(const overrides of [{expiresAt:Date.now()-1},{expiresAt:Date.now()+60000},{target:'someone'},{id:''}]) assert.equal((await d.execute(command(overrides))).ok,false);
  assert.equal(n,0);
 });
+test('a command from the other PC is anchored to this PC\'s clock, and its repeat is the same command',async()=>{
+ let n=0,now=1_000_000;const d=new Dispatcher(async c=>{n++;return c.expiresAt;},{clock:()=>now});
+ const {expiresAt,...c}=command({id:'ttl-1'});
+ assert.equal((await d.execute({...c,ttl:4000})).data,1_004_000);
+ now+=50;assert.equal((await d.execute({...c,ttl:3950})).data,1_004_000);assert.equal(n,1);
+ assert.equal((await d.execute({...c,id:'ttl-2',ttl:60000})).data,now+10000,'clamped to 10 s');
+ for(const ttl of [0,-5])assert.equal((await d.execute({...c,id:'ttl'+ttl,ttl})).code,'expired');
+ assert.equal((await d.execute({...c,id:'ttl-bad',ttl:'5000'})).code,'invalid_command');
+});
 test('bounded admission rejects additional work', async()=>{
  let release; const d=new Dispatcher(()=>new Promise(r=>release=r),{maxPending:1});
  const first=d.execute(command()); await new Promise(r=>setImmediate(r));

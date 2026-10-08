@@ -1,4 +1,4 @@
-import https from 'node:https'; import tls from 'node:tls'; import {createHash,timingSafeEqual} from 'node:crypto';
+import https from 'node:https'; import tls from 'node:tls'; import {createHash,timingSafeEqual} from 'node:crypto';import {describing} from './errors.mjs';
 export function requestPeer(pair,method,path,body) {
  if(!pair||!/^[a-f0-9]{64}$/.test(pair.pin)||!/^[a-f0-9]{64}$/.test(pair.token)||!/^\d{1,3}(\.\d{1,3}){3}$/.test(pair.host)||!Number.isInteger(pair.port)||pair.port<1||pair.port>65535) return Promise.reject(new Error('Peer is not configured'));
  const agent=new https.Agent({keepAlive:false});
@@ -18,4 +18,11 @@ export function requestPeer(pair,method,path,body) {
   });
   req.setTimeout(6000,()=>req.destroy(new Error('Peer timeout; outcome unknown'))); req.on('error',e=>{agent.destroy();reject(e);}); req.end(data);
  });
+}
+// Runs a command on the other PC. The remaining time travels instead of the absolute expiry, so the two PCs' clocks
+// need not agree.
+export async function forwardCommand(pair,{expiresAt,...c},now=Date.now()){
+ const result=await describing('the other PC',()=>requestPeer(pair,'POST','/command',{...c,target:'local',ttl:expiresAt-now}));
+ if(!result.ok){const e=new Error('On the other PC: '+result.message);e.code=result.code;e.publicMessage=e.message;throw e;}
+ return result.data;
 }

@@ -2,7 +2,7 @@ import {app,BrowserWindow,Tray,Menu,ipcMain,dialog,safeStorage,nativeImage} from
 import {contextMenuTemplate} from './contextmenu.mjs';
 import {readFile,writeFile,mkdir,rename,copyFile} from 'node:fs/promises';import {join,dirname} from 'node:path';import {fileURLToPath} from 'node:url';import {randomBytes,randomUUID,createHash,X509Certificate} from 'node:crypto';import selfsigned from 'selfsigned';
 import {SerialQueue} from './serial.mjs';import {checkDeadline} from './deadline.mjs';
-import {defaults,upgradeConfig,validateConfig,validatePair} from './config.mjs';import {Dispatcher} from './commands.mjs';import {FrameStore} from './frames.mjs';import {createApi,createOverlay} from './server.mjs';import {requestPeer} from './client.mjs';import {describing,userError} from './errors.mjs';import {ReactiveRenderer,openFugiLogin} from './reactive.mjs';
+import {defaults,upgradeConfig,validateConfig,validatePair} from './config.mjs';import {Dispatcher} from './commands.mjs';import {FrameStore} from './frames.mjs';import {createApi,createOverlay} from './server.mjs';import {requestPeer,forwardCommand} from './client.mjs';import {userError} from './errors.mjs';import {ReactiveRenderer,openFugiLogin} from './reactive.mjs';
 import {PluginHost} from './plugins/host.mjs';import {TrackingSender,TrackingReceiver} from './plugins/tracking.mjs';import {createControlsPlugin} from './plugins/controls.mjs';import {createReactivesPlugin} from './plugins/reactives.mjs';
 
 // One app per PC. Features are plugins (plugins/*.mjs): tracking, Stream Deck controls and reactives. The core here
@@ -30,7 +30,7 @@ const host=new PluginHost();
 const status=()=>({enabled:!!config?.enabled,role:config?.role,peer:config?.peer?.host||'Not paired',services:last,reactive:renderer.state,frameFresh:!!frames.get(),linkError,plugins:host.status()});
 async function run(c){
  if(!config?.enabled)throw userError('Stream Deck controls are turned off on this PC. Tick "Enable Stream Deck controls and reactives" in settings and save.','disabled');
- if(c.target==='peer'){if(!config.peer)throw userError('This PC is not paired with the other PC yet. Export and import the pairing files first.','not_paired');const result=await describing('the other PC',()=>requestPeer(config.peer,'POST','/command',{...c,target:'local'}));if(!result.ok){const e=new Error('On the other PC: '+result.message);e.code=result.code;e.publicMessage=e.message;throw e;}return result.data;}
+ if(c.target==='peer'){if(!config.peer)throw userError('This PC is not paired with the other PC yet. Export and import the pairing files first.','not_paired');return forwardCommand(config.peer,c);}
  if(c.action==='bridge.status')return status();
  const deadline={expiresAt:c.expiresAt,assertActive:()=>{if(!config.enabled)throw userError("Stream Deck controls were turned off while this action was waiting.","disabled");}};checkDeadline(deadline);
  const service=c.action.split('.')[0];
