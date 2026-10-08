@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {spawn} from 'node:child_process';
+import {EventEmitter} from 'node:events';
 import {mkdtemp,readFile,writeFile,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
@@ -93,16 +94,23 @@ test('the old window holding the sender lock is reported, not hidden', async()=>
 });
 
 test('stream PC tracking reports the relay status like the old receiver window', async()=>{
- let running=true,file=null;const now=1_000_000;
- const receiver=new TrackingReceiver({statusFile:'status.json',relayRunning:async()=>running,
-  readFile:async()=>{if(!file)throw new Error('ENOENT');return JSON.stringify(file);},now:()=>now,timers:{setInterval:()=>1,clearInterval:()=>{}}});
- await receiver.start();assert.equal(receiver.status().state,'Receiver running');
+ // The app runs the relay itself (vts_input_relay --managed) and reads the status file it writes.
+ let file=null,spawned=0,child;const now=1_000_000;const timers=[];
+ const fakeChild=()=>{const c=Object.assign(new EventEmitter(),{exitCode:null,signalCode:null,stderr:new EventEmitter()});c.stdin={end(){setImmediate(()=>{c.exitCode=0;c.emit('close',0,null);});}};return c;};
+ const receiver=new TrackingReceiver({exe:'vts_input_relay.exe',configFile:'relay-config.json',tokenFile:join(tmpdir(),'vtc-relay-test','token'),statusFile:'status.json',
+  legacyRelayPresent:async()=>false,spawn:(exe,args)=>{spawned++;assert.deepEqual(args.slice(0,2),['--source','10.0.0.112']);return child=fakeChild();},removeFile:async()=>{},
+  readFile:async path=>{if(path==='relay-config.json')return JSON.stringify({source:'10.0.0.112'});if(!file)throw new Error('ENOENT');return JSON.stringify(file);},
+  now:()=>now,timers:{setInterval:()=>1,clearInterval:()=>{},setTimeout:(fn,ms)=>{timers.push(fn);return timers.length;},clearTimeout:()=>{}}});
+ await receiver.start();assert.equal(spawned,1);assert.equal(receiver.status().state,'Starting receiver');
  file={source:'10.0.0.112',vts_connected:false,packets_received:0,last_packet_unix_ms:0};await receiver.poll();
  assert.equal(receiver.status().state,'Waiting for VTube Studio');
  file={...file,vts_connected:true,packets_received:42,last_packet_unix_ms:now-1000};await receiver.poll();
  assert.equal(receiver.status().state,'Receiving input');assert.equal(receiver.status().packets,42);
  file={...file,last_packet_unix_ms:now-5000};await receiver.poll();
  assert.equal(receiver.status().state,'Waiting for gaming PC');
- running=false;await receiver.poll();assert.equal(receiver.status().state,'Receiver stopped');
- await receiver.stop();
+ // An unexpected relay exit is reported and restarted with backoff.
+ child.exitCode=1;child.emit('close',1,null);await receiver.poll();
+ assert.equal(receiver.status().state,'Restarting receiver');assert.match(receiver.status().detail,/exited \(code 1\)/);
+ timers.shift()();await until(()=>spawned===2,'relay restart');
+ await receiver.stop();assert.equal(receiver.status().state,'Receiver stopped');
 });
