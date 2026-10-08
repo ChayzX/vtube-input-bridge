@@ -71,10 +71,13 @@ $runKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
 try {
     Say 'Restoring the separate VTube Input Bridge tracking app...' 'Cyan'
 
-    # 1. Which PC is this? Only the stream PC has the relay service.
+    # 1. Which PC is this? Only the stream PC has the relay service, or, once the one-app installer has migrated
+    #    it, the relay settings and migration record that replaced it.
     $relayTask = $null
     if (Get-Command Get-ScheduledTask -ErrorAction SilentlyContinue) { $relayTask = Get-ScheduledTask -TaskName 'VTube Input Relay' -ErrorAction SilentlyContinue }
-    if ($relayTask) { $role = 'stream'; $oldArgs = '--receiver'; $runName = 'VTube Input Bridge Receiver' }
+    $migration = @(Get-ChildItem -Path (Join-Path $retired 'relay-migration-*\migration.json') -ErrorAction SilentlyContinue | Sort-Object FullName | Select-Object -Last 1)
+    $relayConfig = Join-Path ([Environment]::GetFolderPath('ApplicationData')) 'VTubeControl\relay-config.json'
+    if ($relayTask -or $migration.Count -gt 0 -or (Test-Path -LiteralPath $relayConfig)) { $role = 'stream'; $oldArgs = '--receiver'; $runName = 'VTube Input Bridge Receiver' }
     else { $role = 'gaming'; $oldArgs = '--sender --autostart'; $runName = 'VTube Input Bridge' }
 
     # Find the separate app. The old window may have been run from anywhere (an extracted download, say), so look:
@@ -156,7 +159,13 @@ try {
     Say 'Shortcuts restored.'
 
     # 5. The stream PC's receiver service must be running for tracking; report it rather than changing it.
-    if ($role -eq 'stream' -and -not (Get-Process vts_input_relay -ErrorAction SilentlyContinue)) {
+    if ($role -eq 'stream' -and -not $relayTask) {
+        # The new app was running the relay itself and has just been stopped, so the old SYSTEM task has to come back.
+        $record = if ($migration.Count -gt 0) { $migration[0].FullName } else { 'the migration.json printed by the installer' }
+        Say 'Warning: tracking needs the old VTube Input Relay task back. In PowerShell run as administrator, run:' 'Yellow'
+        Say ('  Restore-StreamPCRelay.ps1 -Record "' + $record + '"') 'Yellow'
+        Say 'Restore-StreamPCRelay.ps1 is in the StreamPC package the one-click installer came from.' 'Yellow'
+    } elseif ($role -eq 'stream' -and -not (Get-Process vts_input_relay -ErrorAction SilentlyContinue)) {
         Say 'Warning: the VTube Input Relay background service is not running. Restart the PC; if it is still not running, reinstall the StreamPC package as administrator.' 'Yellow'
     }
 

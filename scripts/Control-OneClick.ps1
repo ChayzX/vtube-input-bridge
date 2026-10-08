@@ -108,15 +108,35 @@ try {
         $previous = @(Get-Process VTubeControl -ErrorAction SilentlyContinue | Where-Object { $_.Path } | Select-Object -ExpandProperty Path -Unique)
         Stop-Named 'VTubeControl' 'the running app'
         Say 'Unpacking (this can take a minute)...'
-        try {
-            Add-Type -AssemblyName System.IO.Compression.FileSystem
-            $extract = Join-Path $work 'pkg'
-            [IO.Compression.ZipFile]::ExtractToDirectory($zip, $extract)
-            & (Join-Path $extract 'Install-Control.ps1') -Role $Role -EnableStartup
-        } catch {
-            foreach ($path in $previous) { Start-Process -FilePath $path -ArgumentList ('--' + $Role, '--background') -ErrorAction SilentlyContinue }
-            throw ('The app could not be installed: ' + $_.Exception.Message + ' The previous apps were left in place.')
+        Add-Type -AssemblyName System.IO.Compression.FileSystem
+        $extract = Join-Path $work 'pkg'
+        [IO.Compression.ZipFile]::ExtractToDirectory($zip, $extract)
+    }
+
+    try {
+        if ($Role -eq 'canada') {
+            if (-not $extract) {
+                Add-Type -AssemblyName System.IO.Compression.FileSystem
+                $extract = Join-Path $work 'pkg'
+                [IO.Compression.ZipFile]::ExtractToDirectory($zip, $extract)
+            }
+            $relayTask = Get-ScheduledTask -TaskName 'VTube Input Relay' -ErrorAction SilentlyContinue
+            $relayConfig = Join-Path ([Environment]::GetFolderPath('ApplicationData')) 'VTubeControl\relay-config.json'
+            if ($relayTask) {
+                Say 'One-time Stream PC migration: Windows will ask permission to replace only the old SYSTEM task.' 'Yellow'
+                $migration = Join-Path $extract 'Migrate-StreamPCRelay.ps1'
+                $appSettings = Join-Path ([Environment]::GetFolderPath('ApplicationData')) 'VTubeControl'
+                $arguments = '-NoProfile -ExecutionPolicy Bypass -File "' + $migration + '" -UserAppDataPath "' + $appSettings + '" -UserLocalAppDataPath "' + $installRoot + '"'
+                $process = Start-Process -FilePath 'powershell.exe' -Verb RunAs -Wait -PassThru -ArgumentList $arguments
+                if ($process.ExitCode -ne 0) { throw 'Stream PC relay migration did not complete. The old task must remain stopped/unchanged as reported; do not launch this app yet.' }
+            } elseif (-not (Test-Path -LiteralPath $relayConfig)) {
+                throw 'The old VTube Input Relay task and migrated source config are both missing. Nothing can safely start tracking; ask for help before continuing.'
+            }
         }
+        if (-not (Test-Path -LiteralPath $exe)) { & (Join-Path $extract 'Install-Control.ps1') -Role $Role -EnableStartup }
+    } catch {
+        foreach ($path in $previous) { Start-Process -FilePath $path -ArgumentList ('--' + $Role, '--background') -ErrorAction SilentlyContinue }
+        throw ('The app could not be installed: ' + $_.Exception.Message + ' The previous apps were left in place.')
     }
 
     # 3. Now retire the separate apps this one replaces. Removed sign-in entries and shortcuts are copied to $retired
@@ -139,8 +159,8 @@ try {
             }
             Stop-Named 'gaming_input_relay' 'the old console sender'
         }
-        # The old tracking window: the sender on the gaming PC, the receiver status on the stream PC. The stream PC's
-        # vts_input_relay background service is a different program and keeps running: it is what feeds VTube Studio.
+        # The old tracking window: the sender on the gaming PC, the receiver status on the stream PC. On the stream PC
+        # the new app now runs vts_input_relay itself (migrated above), so nothing that feeds VTube Studio stops here.
         Stop-Named 'VTubeInputBridge' 'the separate VTube Input Bridge window'
         $runKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
         $oldRun = if ($Role -eq 'pantry') { 'VTube Input Bridge' } else { 'VTube Input Bridge Receiver' }
@@ -177,12 +197,6 @@ try {
             Say ('Stream Deck was not found. After installing Stream Deck 7.1 or newer, double-click ' + $pluginKeep)
         }
     }
-    if ($Role -eq 'canada' -and (Get-Command Get-ScheduledTask -ErrorAction SilentlyContinue) -and
-        -not (Get-ScheduledTask -TaskName 'VTube Input Relay' -ErrorAction SilentlyContinue)) {
-        Say 'Note: the VTube Input Relay background service is not installed on this PC. Tracking needs it once:' 'Yellow'
-        Say 'run Install-StreamPC.ps1 from the StreamPC package as administrator (see its README).' 'Yellow'
-    }
-
     $nl = [Environment]::NewLine
     Say ''
     Say ('VTube Input Bridge ' + $Version + ' is installed.') 'Green'

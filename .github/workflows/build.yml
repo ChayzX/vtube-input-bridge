@@ -3,10 +3,17 @@ on:
   push:
   pull_request:
   workflow_dispatch:
+    inputs:
+      artifacts_only:
+        description: Build installers without running test suites
+        required: false
+        type: boolean
+        default: false
 permissions:
   contents: read
 jobs:
   rust:
+    if: github.event_name != 'workflow_dispatch' || !inputs.artifacts_only
     runs-on: [self-hosted, homelab-ci]
     steps:
       - uses: actions/checkout@v4
@@ -16,7 +23,7 @@ jobs:
     # Manual only. Runs on the Canada Windows runner (started on demand, low priority). It builds the sender app and
     # runs the C# suites with the .NET Framework compiler already on that PC, so -SkipReceiver leaves the Rust
     # receiver to the Linux job and nothing needs installing on Canada.
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' && !inputs.artifacts_only
     runs-on: [self-hosted, Windows, vtube-windows]
     steps:
       - uses: actions/checkout@v4
@@ -34,8 +41,15 @@ jobs:
     # self-hosted runner as the Rust job (hosted runners are unavailable for this account). PowerShell comes from the
     # .NET tool so the installer and rollback fixture suites run here too.
     runs-on: [self-hosted, homelab-ci]
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
+      - name: Install Windows GNU cross linker
+        run: sudo apt-get update && sudo apt-get install -y gcc-mingw-w64-x86-64
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-gnu
       - uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -51,8 +65,24 @@ jobs:
           echo "$RUNNER_TEMP/pwsh" >> "$GITHUB_PATH"
       - name: Build optional control companion and plugin
         shell: bash
-        run: pwsh -NoProfile -File ./scripts/build-controls.ps1
+        run: pwsh -NoProfile -File ./scripts/build-controls.ps1 ${{ inputs.artifacts_only && '-SkipTests' || '' }}
+      - name: Attach installers to a draft preview release
+        if: inputs.artifacts_only
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag='v0.3.0-preview.2'
+          if ! gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$tag" --repo "$GITHUB_REPOSITORY" --draft --prerelease --target "$GITHUB_SHA" \
+              --title 'VTube Input Bridge 0.3.0-preview.2' \
+              --notes 'Draft installers for Pantry (gaming PC) and Canada (stream PC). Not published.'
+          fi
+          gh release upload "$tag" --repo "$GITHUB_REPOSITORY" --clobber \
+            build/Install-VTubeInputBridge-GamingPC.cmd \
+            build/Install-VTubeInputBridge-StreamPC.cmd
       - uses: actions/upload-artifact@v4
+        if: ${{ !inputs.artifacts_only }}
         with:
           name: VTubeControl-Preview
           path: |

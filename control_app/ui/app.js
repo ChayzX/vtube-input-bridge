@@ -6,12 +6,13 @@ async function perform(fn){try{show(await fn());}catch(e){show(e.message);}}
 let editing=false;
 function renderTracking(t){
  if(!t)return;
- el('trackState').textContent=t.error&&t.started===false?'Tracking failed to start':(t.state||'Starting…');
- el('trackState').className='state '+(['Sending','Receiving input'].includes(t.state)?'ok':'warn');
+ const trackingState=t.role==='sender'?(t.connectionState||t.state):t.state;
+ el('trackState').textContent=t.error&&t.started===false?'Tracking failed to start':(trackingState||'Starting…');
+ el('trackState').className='state '+(['Connected','Receiving input'].includes(trackingState)?'ok':'warn');
  if(t.role==='sender'){
   el('senderControls').hidden=false;
   el('trackDetail').textContent=t.legacy?'The old gaming input relay is running. Disable its scheduled task first.'
-   :t.error?t.error:t.running?`Sending to ${t.destination} on UDP 5055. ${Number(t.packets).toLocaleString()} packets sent.`:'Press Start to send input to the stream PC.';
+   :t.error?t.error:t.running?(t.receiverConnected?`Connected to Canada. ${Number(t.packets).toLocaleString()} packets sent; latest acknowledged packet ${t.lastAckSequence}.`:`Sending to ${t.destination} on UDP 5055, but no recent acknowledgement from Canada. Check Tracking on Canada for its VTube Studio and Pantry address status.`):'Starting or reconnecting to the stream PC…';
   el('trackToggle').textContent=t.running?'Stop':'Start';
   el('destination').disabled=t.running;
   if(!editing){el('destination').value=t.destination||'';el('sensitivity').value=t.sensitivity;}
