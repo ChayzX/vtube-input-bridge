@@ -51,3 +51,22 @@ test('Meld Studio adapter lists scenes and switches by name over the WebChannel 
   }finally{await new Promise(r=>s.close(r));}
  }
 });
+test('VTS approval: a revoked token is replaced, and the press does not wait for the Allow click',async()=>{
+ const s=new WebSocketServer({port:0,host:'127.0.0.1'});await once(s,'listening');let tokenRequests=0,allow,triggered=0;
+ s.on('connection',w=>w.on('message',b=>{const m=JSON.parse(b);const reply=data=>w.readyState===1&&w.send(JSON.stringify({requestID:m.requestID,messageType:m.messageType,data}));
+  // VTube Studio answers a token request only when the streamer clicks Allow.
+  if(m.messageType==='AuthenticationTokenRequest'){tokenRequests++;allow=()=>reply({authenticationToken:'fresh'});}
+  else if(m.messageType==='AuthenticationRequest')reply({authenticated:m.data.authenticationToken==='fresh'});
+  else{triggered++;reply({hotkeyID:m.data.hotkeyID});}}));
+ const config={url:`ws://127.0.0.1:${s.address().port}`,token:'revoked'};const saved=[];const opts=()=>({...config,saveToken:async t=>{saved.push(t);config.token=t;}});
+ try{
+  const started=Date.now();
+  await assert.rejects(vtsAction(opts(),'vts.trigger',{hotkey:'h'}),e=>e.code==='not_approved'&&/no longer accepts.*Click Allow.*stream PC/.test(e.publicMessage));
+  assert.ok(Date.now()-started<1000);assert.deepEqual(saved,['']);
+  await new Promise(r=>setTimeout(r,50));assert.equal(tokenRequests,1);
+  // A second press while the prompt is open does not open another prompt.
+  await assert.rejects(vtsAction(opts(),'vts.trigger',{hotkey:'h'}),/Click Allow/);await new Promise(r=>setTimeout(r,50));assert.equal(tokenRequests,1);
+  allow();const until=Date.now()+2000;while(config.token!=='fresh'&&Date.now()<until)await new Promise(r=>setTimeout(r,10));
+  assert.equal(config.token,'fresh');await vtsAction(opts(),'vts.trigger',{hotkey:'h'});assert.equal(triggered,1);
+ }finally{await new Promise(r=>s.close(r));}
+});
