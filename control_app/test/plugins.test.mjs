@@ -162,3 +162,18 @@ test('an unexpected relay exit is reported and restarted with backoff', async()=
  timers.shift()();await until(()=>spawned===2,'relay restart');
  await receiver.stop();assert.equal(receiver.status().state,'Receiver stopped');
 });
+
+test('reactive refusals say why and never "it may already have happened"', async()=>{
+ const {createReactivesPlugin}=await import('../src/plugins/reactives.mjs');const {Dispatcher}=await import('../src/commands.mjs');
+ const run=async(config,action)=>{const host=new PluginHost();let started=0;
+  host.add(createReactivesPlugin({getConfig:()=>config,linkError:()=>null,renderer:{state:'Stopped',stop(){},start:async()=>{started++;}},frames:{get:()=>null},setVisible:async v=>v,clearPeerFrame:async()=>{}}));await host.start('reactives');
+  const r=await new Dispatcher(c=>host.action(c.action,c.args,{})).execute({id:'r',target:'local',action,args:{},expiresAt:Date.now()+5000});return {r,started};};
+ const pantry={role:'pantry',reactive:{enabled:true,url:'https://reactive.fugi.tech/group',visible:true}};
+ for(const [config,action,message] of [[{role:'canada',reactive:{enabled:false,visible:true}},'reactive.start',/runs on the gaming PC/],[pantry,'reactive.show',/stream PC \(Canada\)/],
+  [{...pantry,reactive:{...pantry.reactive,enabled:false}},'reactive.start',/rendering is turned off/],[{...pantry,reactive:{...pantry.reactive,url:''}},'reactive.start',/Enter the Fugi/],
+  [{...pantry,reactive:{...pantry.reactive,url:'https://reactive.fugi.tech/settings'}},'reactive.start',/group or individual/]]){
+  const {r,started}=await run(config,action);assert.equal(r.ok,false);assert.match(r.message,message);assert.doesNotMatch(r.message,/may already have happened/);assert.equal(started,0);
+ }
+ assert.equal((await run(pantry,'reactive.start')).started,1);
+ assert.equal((await run({...pantry,role:'canada'},'reactive.hide')).r.ok,true);
+});

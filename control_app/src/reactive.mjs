@@ -1,4 +1,4 @@
-import {BrowserWindow} from 'electron';import {validateSourceUrl,fugiPermission} from './frames.mjs';
+import {BrowserWindow} from 'electron';import {validateSourceUrl,fugiPermission} from './frames.mjs';import {userError} from './errors.mjs';
 const partition='persist:fugi-reactives';
 function harden(contents,allowRpc=false){
  contents.session.setPermissionRequestHandler((wc,permission,callback,details)=>{let origin;try{origin=new URL(details.requestingUrl).origin;}catch{}callback(allowRpc&&fugiPermission(permission,origin,wc.getURL()));});
@@ -26,7 +26,7 @@ export class ReactiveRenderer {
   win.webContents.on('paint',(_event,_dirty,image)=>{if(win.webContents.getURL()===url.href){this.latest=image.toPNG();}});
   win.webContents.setFrameRate(10);
   win.webContents.on('did-fail-load',()=>{this.latest=null;this.state='Fugi source unavailable';});
-  try{await win.loadURL(url.href);}catch{this.stop();throw new Error('Could not load Fugi source');}
+  try{await win.loadURL(url.href);}catch{this.stop();throw userError('Could not load the Fugi browser source. Check the URL in settings and that Pantry is online.','unavailable');}
   this.state='Rendering — Discord response needs verification';
   this.timer=setInterval(async()=>{
    if(this.busy||win.isDestroyed())return;this.busy=true;let timeout;
