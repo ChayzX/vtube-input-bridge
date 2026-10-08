@@ -1,4 +1,4 @@
-const el=id=>document.getElementById(id);let saved,role;
+const el=id=>document.getElementById(id);let role;
 const show=value=>{el('result').textContent=typeof value==='string'?value:value?.ok===false?'Failed: '+value.message:JSON.stringify(value,null,2);};
 async function perform(fn){try{show(await fn());}catch(e){show(e.message);}}
 
@@ -30,18 +30,27 @@ el('gameMouse').onchange=mouse;el('sensitivity').onchange=()=>{editing=false;mou
 for(const id of ['destination','sensitivity']){el(id).onfocus=()=>{editing=true;};el(id).onblur=()=>{editing=false;};}
 
 // Stream Deck controls and reactives: unavailable (and disabled here) when the secure link could not start.
+// The window only hides on close, so settings can change behind it (tray, Stream Deck, pairing). The form tracks which
+// fields the user edited: everything else follows the stored settings, and Save sends only the form's own fields on top
+// of the settings as they are now, so it never undoes a change made elsewhere. Show/hide is never the form's to send.
+const fields=[['role','role'],['ownIp','ownIp'],['enabled','enabled','checked'],['obsEnabled','obs.enabled','checked'],['obsUrl','obs.url'],['obsPassword','obs.password'],['meldEnabled','meld.enabled','checked'],['meldUrl','meld.url'],['spotifyEnabled','spotify.enabled','checked'],['vtsEnabled','vts.enabled','checked'],['vtsUrl','vts.url'],['reactiveEnabled','reactive.enabled','checked'],['reactiveUrl','reactive.url']];
+const pick=(o,path)=>path.split('.').reduce((v,k)=>v?.[k],o);
+let loaded={};
+function fill(config,force){for(const [id,path,prop='value'] of fields){const value=pick(config,path)??(prop==='checked'?false:'');if(force||el(id)[prop]===loaded[id])el(id)[prop]=value;loaded[id]=value;}}
+function formOnto(config){const c=structuredClone(config);for(const [id,path,prop='value'] of fields){const keys=path.split('.');const last=keys.pop();keys.reduce((o,k)=>o[k]??={},c)[last]=el(id)[prop];}c.ownIp=c.ownIp.trim();return c;}
 // A failed bind (this PC's address not up yet) is retried by the app and leaves the form editable to fix the address.
 function renderProblem(r){const text=r.linkError?'Unavailable: '+r.linkError.replace(/\.?$/,'.')+' Tracking is not affected.':r.bindError?'Stream Deck controls are not running yet: '+r.bindError:'';el('linkError').hidden=!text;el('linkError').textContent=text;}
-function renderControls(r){
+function renderControls(r,force){
  renderProblem(r);
  for(const node of document.querySelectorAll('#settings input, #settings select, #settings button, fieldset button, #target'))node.disabled=!!r.linkError;
  el('status').textContent=JSON.stringify(r.plugins,null,2);
- if(!r.config)return;saved=r.config;
- el('role').value=saved.role;el('ownIp').value=saved.ownIp;el('enabled').checked=saved.enabled;el('peer').textContent=saved.peer?'Paired with '+saved.peer.host:'Not paired';el('obsEnabled').checked=saved.obs.enabled;el('obsUrl').value=saved.obs.url;el('obsPassword').value=saved.obs.password;el('meldEnabled').checked=!!saved.meld?.enabled;el('meldUrl').value=saved.meld?.url||'ws://127.0.0.1:13376';el('spotifyEnabled').checked=saved.spotify.enabled;el('vtsEnabled').checked=saved.vts.enabled;el('vtsUrl').value=saved.vts.url;el('reactiveEnabled').checked=saved.reactive.enabled;el('reactiveUrl').value=saved.reactive.url;el('overlay').value=r.overlayUrl;
+ if(!r.config)return;fill(r.config,force);
+ el('peer').textContent=r.config.peer?'Paired with '+r.config.peer.host:'Not paired';el('overlay').value=r.overlayUrl;
 }
-async function refresh(){const r=await window.control.get();role=r.role;el('roleLine').textContent=role==='canada'?'Stream PC (Canada)':'Gaming PC (Pantry)';renderTracking(r.plugins.tracking);renderControls(r);}
-el('settings').addEventListener('submit',event=>{event.preventDefault();perform(async()=>{const c={...saved,role:el('role').value,ownIp:el('ownIp').value.trim(),enabled:el('enabled').checked,obs:{enabled:el('obsEnabled').checked,url:el('obsUrl').value,password:el('obsPassword').value},vts:{...saved.vts,enabled:el('vtsEnabled').checked,url:el('vtsUrl').value},meld:{enabled:el('meldEnabled').checked,url:el('meldUrl').value},spotify:{enabled:el('spotifyEnabled').checked},reactive:{...saved.reactive,enabled:el('reactiveEnabled').checked,url:el('reactiveUrl').value}};await window.control.save(c);await refresh();return 'Saved';});});
+async function refresh(){const r=await window.control.get();role=r.role;el('roleLine').textContent=role==='canada'?'Stream PC (Canada)':'Gaming PC (Pantry)';renderTracking(r.plugins.tracking);renderControls(r,true);}
+el('settings').addEventListener('submit',event=>{event.preventDefault();perform(async()=>{const r=await window.control.get();renderControls(r);await window.control.save(formOnto(r.config));await refresh();return 'Saved';});});
+window.addEventListener('focus',()=>window.control.get().then(r=>renderControls(r)).catch(()=>{}));
 for(const [id,fn] of [['export','exportPair'],['import','importPair'],['login','login'],['startReactive','startReactive'],['stopReactive','stopReactive']])el(id).onclick=()=>perform(async()=>{const r=await window.control[fn]();if(id==='import')await refresh();return r;});
 for(const [id,action] of [['scenes','obs.scenes'],['meldScenes','meld.scenes'],['hotkeys','vts.hotkeys'],['pause','spotify.pause']])el(id).onclick=()=>perform(()=>window.control.command({target:el('target').value,action,args:{}}));
-setInterval(()=>window.control.get().then(r=>{renderTracking(r.plugins.tracking);renderProblem(r);el('status').textContent=JSON.stringify(r.plugins,null,2);}).catch(()=>{}),1000);
+setInterval(()=>window.control.get().then(r=>{renderTracking(r.plugins.tracking);renderProblem(r);if(r.config)fill(r.config);el('status').textContent=JSON.stringify(r.plugins,null,2);}).catch(()=>{}),1000);
 refresh().catch(e=>show(e.message));
