@@ -66,8 +66,11 @@ $batch = @(
     'set "VTC_SELF=%~f0"',
     'powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$f=[IO.File]::OpenRead($env:VTC_SELF); $n=[int][Math]::Min(65536,$f.Length); $buf=New-Object byte[] $n; $r=$f.Read($buf,0,$n); $f.Dispose(); $s=[Text.Encoding]::ASCII.GetString($buf,0,$r); $a=$s.IndexOf(''#VTC-''+''SCRIPT#''); $b=$s.IndexOf(''#VTC-''+''PAYLOAD#''); & ([ScriptBlock]::Create($s.Substring($a+12, $b-$a-12)))"',
     'set "VTC_RESULT=%ERRORLEVEL%"',
+    # Success needs no key press: the script already confirmed it in a dialog (issue #6). On failure the window stays.
+    'if "%VTC_RESULT%"=="0" exit /b 0',
     'echo.',
-    'if not "%VTC_RESULT%"=="0" echo Something went wrong. Send a screenshot of this window to whoever sent you this file.',
+    'echo Something went wrong. Send a screenshot of this window to whoever sent you this file.',
+    'echo When you are done, close this window with its X button.',
     'pause',
     'exit /b %VTC_RESULT%',
     '',

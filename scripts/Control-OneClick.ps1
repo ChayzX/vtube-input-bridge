@@ -44,6 +44,21 @@ function Stop-Named([string]$Name, [string]$Label) {
     }
 }
 
+# Reports the result in a dialog that stays on top of other windows. The console's "press any key" missed key presses
+# once the app, the firewall prompt or Stream Deck took keyboard focus (issue #6), so a dialog is the one window the
+# user is sure to see and answer. VTC_QUIET=1 skips it for scripted installs.
+function Show-Result([string]$Text, [bool]$Failed) {
+    if ($env:VTC_QUIET -eq '1') { return }
+    try {
+        Add-Type -AssemblyName System.Windows.Forms
+        $owner = New-Object System.Windows.Forms.Form -Property @{ TopMost = $true }
+        try {
+            $icon = if ($Failed) { [System.Windows.Forms.MessageBoxIcon]::Error } else { [System.Windows.Forms.MessageBoxIcon]::Information }
+            [void][System.Windows.Forms.MessageBox]::Show($owner, $Text, 'VTube Input Bridge', [System.Windows.Forms.MessageBoxButtons]::OK, $icon)
+        } finally { $owner.Dispose() }
+    } catch { }
+}
+
 $exitCode = 0
 $work = Join-Path ([IO.Path]::GetTempPath()) ('vtubebridge-' + [Guid]::NewGuid().ToString('N'))
 try {
@@ -77,80 +92,96 @@ try {
     $retired = Join-Path $installRoot 'retired'
     New-Item -ItemType Directory -Force -Path $retired | Out-Null
 
-    # 2. Retire the separate apps this one replaces. Removed sign-in entries and shortcuts are copied to $retired first.
-    #    Tracking settings (address, game mouse mode) are kept: the new app reads the same files.
-    if ($Role -eq 'pantry') {
-        # The old console sender must not run beside the app (README setup step 5). Enable-ScheduledTask undoes this.
-        if (Get-Command Get-ScheduledTask -ErrorAction SilentlyContinue) {
-            foreach ($task in @(Get-ScheduledTask -ErrorAction SilentlyContinue | Where-Object {
-                @($_.Actions | Where-Object { $_.Execute -like '*gaming_input_relay*' }).Count -gt 0 })) {
-                try {
-                    Stop-ScheduledTask -TaskPath $task.TaskPath -TaskName $task.TaskName -ErrorAction SilentlyContinue
-                    Disable-ScheduledTask -TaskPath $task.TaskPath -TaskName $task.TaskName | Out-Null
-                    Say ('Disabled old sender task: ' + $task.TaskPath + $task.TaskName)
-                } catch {
-                    throw ('Could not disable the old sender task "' + $task.TaskPath + $task.TaskName + '". Right-click this file and choose Run as administrator, or disable it in Task Scheduler.')
-                }
-            }
-        }
-        Stop-Named 'gaming_input_relay' 'the old console sender'
-    }
-    # The app first (an installed one would restart its tracking helper), then the old tracking window: the sender on
-    # the gaming PC, the receiver status on the stream PC. The stream PC's vts_input_relay background service is a
-    # different program and keeps running: it is what feeds VTube Studio.
-    Stop-Named 'VTubeControl' 'the running app'
-    Stop-Named 'VTubeInputBridge' 'the separate VTube Input Bridge window'
-    $runKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
-    $oldRun = if ($Role -eq 'pantry') { 'VTube Input Bridge' } else { 'VTube Input Bridge Receiver' }
-    $runItem = Get-Item -Path $runKey -ErrorAction SilentlyContinue
-    if ($runItem -and ($runItem.GetValueNames() -contains $oldRun)) {
-        Set-Content -LiteralPath (Join-Path $retired ($oldRun + '.run.txt')) -Value ([string]$runItem.GetValue($oldRun))
-        Remove-ItemProperty -Path $runKey -Name $oldRun
-        Say ('Removed the separate app from sign-in (saved in ' + $retired + ').')
-    }
-    # Shortcuts from the 0.2 companion would open the old version without tracking.
-    foreach ($folder in @([Environment]::GetFolderPath('DesktopDirectory'), [Environment]::GetFolderPath('Programs'))) {
-        if ([string]::IsNullOrWhiteSpace($folder)) { continue }
-        $old = Join-Path $folder 'VTube Control.lnk'
-        if (Test-Path -LiteralPath $old) {
-            Copy-Item -LiteralPath $old -Destination (Join-Path $retired ([Guid]::NewGuid().ToString('N') + '-VTube Control.lnk'))
-            Remove-Item -LiteralPath $old
-        }
-    }
-
-    # 3. Install with the package's own installer (per-file checksums, rollback record). It takes over the
-    #    VTube Input Bridge shortcuts and starts the app in the tray at sign-in.
+    # 2. Install first, and retire the old tracking app only once that worked: retiring first left a PC
+    #    with nothing running when the install failed. The package's own installer checks every file and keeps a
+    #    rollback record; it takes over the VTube Input Bridge shortcuts and starts the app in the tray at sign-in.
     $versionPath = Join-Path $installRoot ('versions\' + $Version)
     $exe = Join-Path $versionPath 'VTubeControl.exe'
     if (Test-Path -LiteralPath $exe) {
         Say ('VTube Input Bridge ' + $Version + ' is already installed; skipping the app install.')
     } else {
+        if (Test-Path -LiteralPath $versionPath) {
+            throw ('An earlier install of ' + $Version + ' did not finish. Run Rollback-Control.ps1 with the newest rollback.json under ' + (Join-Path $installRoot 'rollback') + ', then run this installer again. Nothing was changed this time.')
+        }
+        # The package installer refuses to replace a running app. Only an earlier version of this app is stopped
+        # here; it is restarted below if the install fails. The old tracking window keeps running for now.
+        $previous = @(Get-Process VTubeControl -ErrorAction SilentlyContinue | Where-Object { $_.Path } | Select-Object -ExpandProperty Path -Unique)
+        Stop-Named 'VTubeControl' 'the running app'
         Say 'Unpacking (this can take a minute)...'
         Add-Type -AssemblyName System.IO.Compression.FileSystem
         $extract = Join-Path $work 'pkg'
         [IO.Compression.ZipFile]::ExtractToDirectory($zip, $extract)
     }
 
-    if ($Role -eq 'canada') {
-        if (-not $extract) {
-            Add-Type -AssemblyName System.IO.Compression.FileSystem
-            $extract = Join-Path $work 'pkg'
-            [IO.Compression.ZipFile]::ExtractToDirectory($zip, $extract)
+    try {
+        if ($Role -eq 'canada') {
+            if (-not $extract) {
+                Add-Type -AssemblyName System.IO.Compression.FileSystem
+                $extract = Join-Path $work 'pkg'
+                [IO.Compression.ZipFile]::ExtractToDirectory($zip, $extract)
+            }
+            $relayTask = Get-ScheduledTask -TaskName 'VTube Input Relay' -ErrorAction SilentlyContinue
+            $relayConfig = Join-Path ([Environment]::GetFolderPath('ApplicationData')) 'VTubeControl\relay-config.json'
+            if ($relayTask) {
+                Say 'One-time Stream PC migration: Windows will ask permission to replace only the old SYSTEM task.' 'Yellow'
+                $migration = Join-Path $extract 'Migrate-StreamPCRelay.ps1'
+                $appSettings = Join-Path ([Environment]::GetFolderPath('ApplicationData')) 'VTubeControl'
+                $arguments = '-NoProfile -ExecutionPolicy Bypass -File "' + $migration + '" -UserAppDataPath "' + $appSettings + '" -UserLocalAppDataPath "' + $installRoot + '"'
+                $process = Start-Process -FilePath 'powershell.exe' -Verb RunAs -Wait -PassThru -ArgumentList $arguments
+                if ($process.ExitCode -ne 0) { throw 'Stream PC relay migration did not complete. The old task must remain stopped/unchanged as reported; do not launch this app yet.' }
+            } elseif (-not (Test-Path -LiteralPath $relayConfig)) {
+                throw 'The old VTube Input Relay task and migrated source config are both missing. Nothing can safely start tracking; ask for help before continuing.'
+            }
         }
-        $relayTask = Get-ScheduledTask -TaskName 'VTube Input Relay' -ErrorAction SilentlyContinue
-        $relayConfig = Join-Path ([Environment]::GetFolderPath('ApplicationData')) 'VTubeControl\relay-config.json'
-        if ($relayTask) {
-            Say 'One-time Stream PC migration: Windows will ask permission to replace only the old SYSTEM task.' 'Yellow'
-            $migration = Join-Path $extract 'Migrate-StreamPCRelay.ps1'
-            $appSettings = Join-Path ([Environment]::GetFolderPath('ApplicationData')) 'VTubeControl'
-            $arguments = '-NoProfile -ExecutionPolicy Bypass -File "' + $migration + '" -UserAppDataPath "' + $appSettings + '" -UserLocalAppDataPath "' + $installRoot + '"'
-            $process = Start-Process -FilePath 'powershell.exe' -Verb RunAs -Wait -PassThru -ArgumentList $arguments
-            if ($process.ExitCode -ne 0) { throw 'Stream PC relay migration did not complete. The old task must remain stopped/unchanged as reported; do not launch this app yet.' }
-        } elseif (-not (Test-Path -LiteralPath $relayConfig)) {
-            throw 'The old VTube Input Relay task and migrated source config are both missing. Nothing can safely start tracking; ask for help before continuing.'
-        }
+        if (-not (Test-Path -LiteralPath $exe)) { & (Join-Path $extract 'Install-Control.ps1') -Role $Role -EnableStartup }
+    } catch {
+        foreach ($path in $previous) { Start-Process -FilePath $path -ArgumentList ('--' + $Role, '--background') -ErrorAction SilentlyContinue }
+        throw ('The app could not be installed: ' + $_.Exception.Message + ' The previous apps were left in place.')
     }
-    if (-not (Test-Path -LiteralPath $exe)) { & (Join-Path $extract 'Install-Control.ps1') -Role $Role -EnableStartup }
+
+    # 3. Now retire the separate apps this one replaces. Removed sign-in entries and shortcuts are copied to $retired
+    #    first. A problem here is a warning, not a failure: the new app is installed, and whatever was not retired
+    #    keeps working. Tracking settings (address, game mouse mode) carry over: the new app reads the same files.
+    try {
+        if ($Role -eq 'pantry') {
+            # The old console sender must not run beside the app (README setup step 5). Enable-ScheduledTask undoes this.
+            if (Get-Command Get-ScheduledTask -ErrorAction SilentlyContinue) {
+                foreach ($task in @(Get-ScheduledTask -ErrorAction SilentlyContinue | Where-Object {
+                    @($_.Actions | Where-Object { $_.Execute -like '*gaming_input_relay*' }).Count -gt 0 })) {
+                    try {
+                        Stop-ScheduledTask -TaskPath $task.TaskPath -TaskName $task.TaskName -ErrorAction SilentlyContinue
+                        Disable-ScheduledTask -TaskPath $task.TaskPath -TaskName $task.TaskName | Out-Null
+                        Say ('Disabled old sender task: ' + $task.TaskPath + $task.TaskName)
+                    } catch {
+                        Say ('Warning: could not disable the old sender task "' + $task.TaskPath + $task.TaskName + '". Disable it in Task Scheduler.') 'Yellow'
+                    }
+                }
+            }
+            Stop-Named 'gaming_input_relay' 'the old console sender'
+        }
+        # The old tracking window: the sender on the gaming PC, the receiver status on the stream PC. On the stream PC
+        # the new app now runs vts_input_relay itself (migrated above), so nothing that feeds VTube Studio stops here.
+        Stop-Named 'VTubeInputBridge' 'the separate VTube Input Bridge window'
+        $runKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
+        $oldRun = if ($Role -eq 'pantry') { 'VTube Input Bridge' } else { 'VTube Input Bridge Receiver' }
+        $runItem = Get-Item -Path $runKey -ErrorAction SilentlyContinue
+        if ($runItem -and ($runItem.GetValueNames() -contains $oldRun)) {
+            Set-Content -LiteralPath (Join-Path $retired ($oldRun + '.run.txt')) -Value ([string]$runItem.GetValue($oldRun))
+            Remove-ItemProperty -Path $runKey -Name $oldRun
+            Say ('Removed the separate app from sign-in (saved in ' + $retired + ').')
+        }
+        # Shortcuts from the 0.2 companion would open the old version without tracking.
+        foreach ($folder in @([Environment]::GetFolderPath('DesktopDirectory'), [Environment]::GetFolderPath('Programs'))) {
+            if ([string]::IsNullOrWhiteSpace($folder)) { continue }
+            $old = Join-Path $folder 'VTube Control.lnk'
+            if (Test-Path -LiteralPath $old) {
+                Copy-Item -LiteralPath $old -Destination (Join-Path $retired ([Guid]::NewGuid().ToString('N') + '-VTube Control.lnk'))
+                Remove-Item -LiteralPath $old
+            }
+        }
+    } catch {
+        Say ('Warning: the separate tracking app was not fully retired: ' + $_.Exception.Message) 'Yellow'
+    }
 
     if ($Role -eq 'pantry' -and $PluginLength -gt 0) {
         # 4. Keep a copy of the plugin and let Stream Deck install it (it shows its own confirmation prompt).
@@ -166,17 +197,23 @@ try {
             Say ('Stream Deck was not found. After installing Stream Deck 7.1 or newer, double-click ' + $pluginKeep)
         }
     }
-    # 5. Start the one app. On the gaming PC it starts sending as the old app did.
+    $nl = [Environment]::NewLine
+    Say ''
+    Say ('VTube Input Bridge ' + $Version + ' is installed.') 'Green'
+    Say 'It starts in the tray at sign-in. Stream Deck controls and reactives stay off until paired and enabled.'
+    Show-Result ('VTube Input Bridge ' + $Version + ' is installed.' + $nl + $nl + 'Click OK to open it. From now on it starts in the system tray when you sign in.') $false
+
+    # 5. Open the app only after the dialog, so nothing competes for focus. On the gaming PC it starts sending as the
+    #    old app did. This window then closes by itself.
     if (-not (Get-Process VTubeControl -ErrorAction SilentlyContinue)) {
         Start-Process -FilePath $exe -ArgumentList ('--' + $Role) -WorkingDirectory $versionPath
     }
-    Say ''
-    Say ('VTube Input Bridge ' + $Version + ' is installed and open (check the system tray).') 'Green'
-    Say 'It starts in the tray at sign-in. Stream Deck controls and reactives stay off until paired and enabled.'
+    Say 'VTube Input Bridge is open (check the system tray).' 'Green'
 } catch {
     Say ''
     Say ('Install failed: ' + $_.Exception.Message) 'Red'
     $exitCode = 1
+    Show-Result ('Install failed: ' + $_.Exception.Message + [Environment]::NewLine + [Environment]::NewLine + 'The installer window stays open with the details. Take a screenshot of it, then close it with its X button.') $true
 } finally {
     Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue
 }

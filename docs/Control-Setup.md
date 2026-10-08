@@ -6,6 +6,8 @@ VTube Input Bridge 0.3.0-preview.2 includes the tracking app and owns the Stream
 
 `Install-VTubeInputBridge-GamingPC.cmd` and `Install-VTubeInputBridge-StreamPC.cmd` (made by `scripts/New-ControlInstaller.ps1`) install the app for the signed-in user and start it. On Canada, the one-click installer asks for a one-time UAC approval to save the old task and source address, then stop and remove only the old `VTube Input Relay` scheduled task. The installer itself and app remain non-elevated. The app uses a new per-user VTS token, so VTube Studio may ask for approval again. The old ProgramData executable and token are retained for rollback. Do not run `Install-StreamPC.ps1` again.
 
+When the one-click installer finishes, it reports the result in a dialog. On success, clicking **OK** opens the app and the installer window closes by itself; no key press is needed. On failure the installer window stays open with the details; take a screenshot, then close it with its X button. Before this fix ([#6](https://github.com/ChayzX/vtube-input-bridge/issues/6)) the window ended with "Press any key to continue", which ignored key presses once the newly opened app, the firewall prompt or Stream Deck had keyboard focus. If you see that with an older installer, the install has already finished: close the window with X. For scripted installs, set `VTC_QUIET=1` to skip the dialog.
+
 1. Verify the ZIP checksum and extract the package for the appropriate PC. Exit the current VTube Input Bridge app from its tray before installing the update.
 2. In PowerShell, run `./Install-Control.ps1`. It installs into `%LOCALAPPDATA%\VTubeControl\versions\<version>`, creates Desktop and Start menu **VTube Input Bridge** shortcuts, and records backups. It does not launch the app, enable startup, or add a firewall rule by default.
 3. Optional flags: `-EnableStartup` adds a separate per-user Run entry; `-EnableFirewall -PeerAddress <other-PC-IP>` creates a uniquely named private-network inbound TCP 5056 rule. The firewall option requires elevated PowerShell under the same Windows account that will run the companion. Pantry peer: `10.0.0.119`; Canada peer: `10.0.0.112`. Confirm current IPs first.
@@ -44,6 +46,18 @@ Closing the app window keeps it in the tray. **Exit VTube Input Bridge** stops t
 3. If the PCs' addresses changed, restore their expected LAN addresses or update the saved receiver source and the existing restricted firewall rule through the normal setup process. Do not create broader firewall rules to make the warning disappear.
 4. Update both PCs to preview.2. An older Canada relay does not send acknowledgements, so Pantry will keep showing **Waiting for Stream PC** even if the older setup is otherwise working.
 5. If both PCs are on preview.2, both addresses match, and Canada says it is receiving input while Pantry remains waiting, the reply path is blocked. Record the exact messages on both PCs and stop there; the app does not change firewall rules automatically.
+
+## Getting the separate tracking app back
+
+`scripts/Restore-SeparateTracking.cmd` restores the separate VTube Input Bridge window after a failed or unwanted update. Double-click it as the signed-in user; it needs no administrator rights.
+- It detects the PC: the stream PC is the one with the VTube Input Relay service.
+- It stops the new app and removes it from sign-in, setting the old entry aside in `%LOCALAPPDATA%\VTubeControl\retired`.
+- It finds the old app. It checks where the saved sign-in entry pointed, then the install folders, Downloads, Desktop and Documents, then the new install's own copy. As a last resort it uses a released copy embedded in the restore file and checked by SHA256.
+- It copies the app to `%LOCALAPPDATA%\Programs\VTubeInputBridge`, restores its sign-in entry (and its shortcuts on the gaming PC), and starts it.
+
+It deletes no program files and never changes `vts_input_relay`. Rebuild the file with `scripts/New-RestoreTool.ps1 -ExePath <VTubeInputBridge.exe> -Version <tag>`.
+
+Since this fix, the one-click installer installs the new app before retiring the old one. If the install fails, the old app keeps running.
 
 ## Fast disable and full rollback
 
