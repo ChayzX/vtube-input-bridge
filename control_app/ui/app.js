@@ -33,7 +33,7 @@ for(const id of ['destination','sensitivity']){el(id).onfocus=()=>{editing=true;
 // The window only hides on close, so settings can change behind it (tray, Stream Deck, pairing). The form tracks which
 // fields the user edited: everything else follows the stored settings, and Save sends only the form's own fields on top
 // of the settings as they are now, so it never undoes a change made elsewhere. Show/hide is never the form's to send.
-const fields=[['role','role'],['ownIp','ownIp'],['enabled','enabled','checked'],['obsEnabled','obs.enabled','checked'],['obsUrl','obs.url'],['obsPassword','obs.password'],['meldEnabled','meld.enabled','checked'],['meldUrl','meld.url'],['spotifyEnabled','spotify.enabled','checked'],['vtsEnabled','vts.enabled','checked'],['vtsUrl','vts.url'],['reactiveEnabled','reactive.enabled','checked'],['reactiveUrl','reactive.url']];
+const fields=[['ownIp','ownIp'],['enabled','enabled','checked'],['obsEnabled','obs.enabled','checked'],['obsUrl','obs.url'],['obsPassword','obs.password'],['meldEnabled','meld.enabled','checked'],['meldUrl','meld.url'],['spotifyEnabled','spotify.enabled','checked'],['vtsEnabled','vts.enabled','checked'],['vtsUrl','vts.url'],['reactiveEnabled','reactive.enabled','checked'],['reactiveUrl','reactive.url']];
 const pick=(o,path)=>path.split('.').reduce((v,k)=>v?.[k],o);
 let loaded={};
 function fill(config,force){for(const [id,path,prop='value'] of fields){const value=pick(config,path)??(prop==='checked'?false:'');if(force||el(id)[prop]===loaded[id])el(id)[prop]=value;loaded[id]=value;}}
@@ -47,7 +47,7 @@ function renderControls(r,force){
  if(!r.config)return;fill(r.config,force);
  el('peer').textContent=r.config.peer?'Paired with '+r.config.peer.host:'Not paired';el('overlay').value=r.overlayUrl;
 }
-async function refresh(){const r=await window.control.get();role=r.role;el('roleLine').textContent=role==='canada'?'Stream PC (Canada)':'Gaming PC (Pantry)';renderTracking(r.plugins.tracking);renderControls(r,true);}
+async function refresh(){const r=await window.control.get();role=r.role;el('roleLine').textContent=role==='canada'?'Stream PC (Canada)':'Gaming PC (Pantry)';for(const n of document.querySelectorAll('.pantry-only'))n.hidden=role!=='pantry';for(const n of document.querySelectorAll('.canada-only'))n.hidden=role!=='canada';renderTracking(r.plugins.tracking);renderControls(r,true);}
 el('settings').addEventListener('submit',event=>{event.preventDefault();perform(async()=>{const r=await window.control.get();renderControls(r);await window.control.save(formOnto(r.config));await refresh();return 'Saved';});});
 window.addEventListener('focus',()=>window.control.get().then(r=>renderControls(r)).catch(()=>{}));
 for(const [id,fn] of [['export','exportPair'],['import','importPair'],['login','login'],['startReactive','startReactive'],['stopReactive','stopReactive']])el(id).onclick=()=>perform(async()=>{const r=await window.control[fn]();if(id==='import')await refresh();return r;});

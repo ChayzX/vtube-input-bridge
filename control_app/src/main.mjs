@@ -56,7 +56,7 @@ const bind=new Retry(()=>transactions.run(async()=>{await startServers();autoSta
 // Loads settings and identity and opens the secure link. A failure here disables only controls and reactives.
 async function startLink(role){
  if(!safeStorage.isEncryptionAvailable()||safeStorage.getSelectedStorageBackend?.()==='basic_text')throw Error('Secure credential storage unavailable');
- config=validateConfig(upgradeConfig(await loadProtected(settingsFile,()=>defaults(role))));
+ config=validateConfig(upgradeConfig(await loadProtected(settingsFile,()=>defaults(role)),role));
  identity=await loadProtected(identityFile,async()=>({localToken:hex(),networkToken:hex(),overlayToken:hex(),cert:await selfsigned.generate([{name:'commonName',value:'VTube Control'}],{keySize:2048,days:3650,algorithm:'sha256'})}));
  await saveProtected(identityFile,identity);
 }
@@ -130,8 +130,8 @@ if(!app.requestSingleInstanceLock()){app.quit();}else{
   ipc('control:get',()=>({role,linkError,bindError:bind.error,plugins:host.status(),status:status(),
    config:config&&{...config,peer:config.peer?{host:config.peer.host,port:config.peer.port,pin:config.peer.pin}:null,obs:{...config.obs,password:config.obs.password?'••••••••':''},vts:{...config.vts,token:undefined}},
    overlayUrl:identity?`http://127.0.0.1:5058/overlay/${identity.overlayToken}`:''}));
-  // Show/hide belongs to the Stream Deck; a save never changes it.
-  ipc('control:save',value=>{requireLink();return transactions.run(async()=>{const next={...value,peer:config.peer,obs:{...value.obs,password:value.obs.password==='••••••••'?config.obs.password:value.obs.password},vts:{...value.vts,token:config.vts.token},reactive:{...value.reactive,visible:config.reactive.visible}};validateConfig(next);config=next;await saveProtected(settingsFile,config);}).then(async()=>{await bind.run();return status();});});
+  // The role is fixed at install, and show/hide belongs to the Stream Deck; a save changes neither.
+  ipc('control:save',value=>{requireLink();return transactions.run(async()=>{const next={...value,role:config.role,peer:config.peer,obs:{...value.obs,password:value.obs.password==='••••••••'?config.obs.password:value.obs.password},vts:{...value.vts,token:config.vts.token},reactive:{...value.reactive,visible:config.reactive.visible}};validateConfig(next);config=next;await saveProtected(settingsFile,config);}).then(async()=>{await bind.run();return status();});});
   ipc('control:export',async()=>{requireLink();const chosen=await dialog.showSaveDialog(window,{title:'Export pairing file — contains a connection credential',defaultPath:`${config.role}-pairing.json`});if(chosen.canceled)return;const pin=createHash('sha256').update(new X509Certificate(identity.cert.cert).raw).digest('hex');await writeFile(chosen.filePath,JSON.stringify({host:config.ownIp,port:5056,pin,token:identity.networkToken},null,2),{mode:0o600});return 'Exported. Transfer securely, import on the other PC, then delete the transfer copy.';});
   ipc('control:import',async()=>{requireLink();const chosen=await dialog.showOpenDialog(window,{title:'Import the OTHER PC’s pairing file',properties:['openFile'],filters:[{name:'Pairing',extensions:['json']}]});if(chosen.canceled)return;const bytes=await readFile(chosen.filePaths[0]);if(bytes.length>8192)throw Error('Pairing file too large');const peer=validatePair(JSON.parse(bytes));return transactions.run(async()=>{const first=!config.peer;validateConfig({...config,peer});config.peer=peer;if(first)config.enabled=true;await saveProtected(settingsFile,config);return first;}).then(async first=>{await bind.run();return (first?'Paired. Stream Deck controls are on.':'Paired')+(bind.error?' '+bind.error:'');});});
   ipc('control:login',()=>{requireLink();if(config.role!=='pantry')throw Error('Log in on Pantry');openFugiLogin();return 'Fugi login window opened';});

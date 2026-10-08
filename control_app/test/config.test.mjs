@@ -10,3 +10,7 @@ test('settings saved before Meld Studio support load with Meld turned off, and M
  assert.throws(()=>validateConfig(c));const up=validateConfig(upgradeConfig(c));assert.deepEqual(up.meld,{enabled:true,url:'ws://127.0.0.1:13376'});
  assert.throws(()=>validateConfig({...up,meld:{enabled:true,url:'ws://10.0.0.5:13376'}}));
 });
+test('the stored role follows the role the PC was installed as',async()=>{const {upgradeConfig}=await import('../src/config.mjs');
+ const switched={...defaults('pantry'),role:'canada',ownIp:'10.0.0.119'};const pantry=upgradeConfig({...switched,role:'pantry',reactive:{enabled:true,url:'',visible:true}},'canada');
+ assert.equal(pantry.role,'canada');assert.equal(pantry.reactive.enabled,false);validateConfig(pantry);
+ assert.equal(upgradeConfig(defaults('pantry'),'pantry').reactive.enabled,true);assert.equal(upgradeConfig({...defaults('canada'),meld:undefined},'canada').meld.enabled,true);});
