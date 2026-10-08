@@ -104,7 +104,7 @@ function updateTray(){
   ...(sender?[{label:t.running?'Stop sending':'Start sending',click:()=>host.ui('tracking',t.running?'stop':'start',{}).catch(e=>dialog.showErrorBox('Tracking',e.message))}]:[]),
   {type:'separator'},
   {label:`Open ${APP_NAME}`,click:createWindow},
-  {label:'Disable Stream Deck controls',enabled:!linkError&&!!config?.enabled,click:()=>transactions.run(async()=>{config.enabled=false;await saveProtected(settingsFile,config);}).then(()=>bind.run(),()=>dialog.showErrorBox('Could not save','Exit the app to stop controls immediately.'))},
+  {label:'Disable Stream Deck controls and reactives',enabled:!linkError&&!!config?.enabled,click:()=>transactions.run(async()=>{config.enabled=false;await saveProtected(settingsFile,config);}).then(()=>bind.run(),()=>dialog.showErrorBox('Could not save','Exit the app to stop controls immediately.'))},
   {label:`Exit ${APP_NAME}`,click:()=>{quit();}}
  ]));
 }

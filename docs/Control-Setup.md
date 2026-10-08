@@ -61,7 +61,7 @@ Since this fix, the one-click installer installs the new app before retiring the
 
 ## Fast disable and full rollback
 
-Fast disable: choose **Disable Stream Deck controls** from the tray. Mouse/keyboard tracking keeps running; **Exit VTube Input Bridge** stops tracking too. Remove only the new bridge-command buttons/plugin if desired.
+Fast disable: choose **Disable Stream Deck controls and reactives** from the tray. It also takes the reactive overlay off stream on Canada (the Web Item goes blank) until controls are enabled again. Mouse/keyboard tracking keeps running; **Exit VTube Input Bridge** stops tracking too. Remove only the new bridge-command buttons/plugin if desired.
 
 Full rollback:
 
