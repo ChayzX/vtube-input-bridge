@@ -54,3 +54,12 @@ test('only Fugi embed pages may access local Discord; mic/camera and LAN remain 
  assert.equal(fugiPermission('loopback-network','https://reactive.fugi.tech','https://reactive.fugi.tech/group'),true);
  for(const [p,o,u] of [['media','https://reactive.fugi.tech','https://reactive.fugi.tech/group'],['local-network','https://reactive.fugi.tech','https://reactive.fugi.tech/group'],['loopback-network','https://evil.test','https://reactive.fugi.tech/group'],['loopback-network','https://reactive.fugi.tech','https://reactive.fugi.tech/settings']])assert.equal(fugiPermission(p,o,u),false);
 });
+test('right-click menu offers cut, copy and paste in text boxes and copy on selected text', async()=>{
+ const {contextMenuTemplate}=await import('../src/contextmenu.mjs');
+ const roles=items=>items.filter(i=>i.role).map(i=>i.role);
+ const field=contextMenuTemplate({isEditable:true,selectionText:'',editFlags:{canCut:false,canCopy:false,canPaste:true,canSelectAll:true}});
+ assert.deepEqual(roles(field),['undo','redo','cut','copy','paste','selectAll']);
+ assert.equal(field.find(i=>i.role==='paste').enabled,true);assert.equal(field.find(i=>i.role==='cut').enabled,false);
+ assert.deepEqual(roles(contextMenuTemplate({isEditable:false,selectionText:'10.0.0.112',editFlags:{canCopy:true}})),['copy','selectAll']);
+ assert.deepEqual(contextMenuTemplate({isEditable:false,selectionText:'',editFlags:{}}),[]);
+});
