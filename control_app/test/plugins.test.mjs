@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {spawn} from 'node:child_process';
+import {EventEmitter} from 'node:events';
+import {PassThrough} from 'node:stream';
 import {mkdtemp,readFile,writeFile,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
@@ -92,17 +94,49 @@ test('the old window holding the sender lock is reported, not hidden', async()=>
  finally{await plugin.stop();await rm(dir,{recursive:true,force:true});}
 });
 
-test('stream PC tracking reports the relay status like the old receiver window', async()=>{
- let running=true,file=null;const now=1_000_000;
- const receiver=new TrackingReceiver({statusFile:'status.json',relayRunning:async()=>running,
-  readFile:async()=>{if(!file)throw new Error('ENOENT');return JSON.stringify(file);},now:()=>now,timers:{setInterval:()=>1,clearInterval:()=>{}}});
- await receiver.start();assert.equal(receiver.status().state,'Receiver running');
- file={source:'10.0.0.112',vts_connected:false,packets_received:0,last_packet_unix_ms:0};await receiver.poll();
+function fakeRelay(){
+ const calls=[];
+ const spawn=(exe,args)=>{
+  const child=new EventEmitter();child.stdin=new PassThrough();child.stderr=new PassThrough();child.exitCode=null;child.signalCode=null;
+  const close=code=>{if(child.exitCode!==null)return;child.exitCode=code;child.emit('close',code,null);};
+  child.kill=()=>close(1);child.stdin.on('finish',()=>close(0));
+  calls.push({exe,args});return child;
+ };
+ return {spawn,calls};
+}
+function receiverWith({config,legacy=false,status}){
+ const {spawn,calls}=fakeRelay();const now=1_000_000;
+ const receiver=new TrackingReceiver({exe:'vts_input_relay.exe',configFile:'relay-config.json',statusFile:'status.json',
+  tokenFile:join(tmpdir(),'vtube-relay-test','vts-token.txt'),legacyRelayPresent:async()=>legacy,spawn,removeFile:async()=>{},now:()=>now,
+  readFile:async file=>{
+   if(file==='relay-config.json'&&config!==undefined)return config;
+   if(file==='status.json'&&status.current)return JSON.stringify(status.current);
+   throw Object.assign(new Error('ENOENT'),{code:'ENOENT'});
+  },
+  timers:{setInterval:()=>1,clearInterval:()=>{},setTimeout:()=>1,clearTimeout:()=>{}}});
+ return {receiver,calls,now};
+}
+
+test('stream PC relay reads settings written by Windows PowerShell (byte-order mark) and reports status', async()=>{
+ const status={current:null};
+ const {receiver,calls,now}=receiverWith({config:'﻿{"source":"10.0.0.112"}',status});
+ await receiver.start();
+ assert.equal(calls.length,1);assert.deepEqual(calls[0].args.slice(0,2),['--source','10.0.0.112']);
+ await receiver.poll();assert.equal(receiver.status().state,'Starting receiver');
+ status.current={source:'10.0.0.112',vts_connected:false,packets_received:0,last_packet_unix_ms:0};await receiver.poll();
  assert.equal(receiver.status().state,'Waiting for VTube Studio');
- file={...file,vts_connected:true,packets_received:42,last_packet_unix_ms:now-1000};await receiver.poll();
+ status.current={...status.current,vts_connected:true,packets_received:42,last_packet_unix_ms:now-1000};await receiver.poll();
  assert.equal(receiver.status().state,'Receiving input');assert.equal(receiver.status().packets,42);
- file={...file,last_packet_unix_ms:now-5000};await receiver.poll();
+ status.current={...status.current,last_packet_unix_ms:now-5000};await receiver.poll();
  assert.equal(receiver.status().state,'Waiting for gaming PC');
- running=false;await receiver.poll();assert.equal(receiver.status().state,'Receiver stopped');
- await receiver.stop();
+ await receiver.stop();assert.equal(receiver.status().state,'Receiver stopped');
+});
+
+test('stream PC relay does not start without its settings or beside the old task', async()=>{
+ const missing=receiverWith({status:{current:null}});
+ await missing.receiver.start();
+ assert.equal(missing.calls.length,0);assert.match(missing.receiver.status().detail,/setup is incomplete/);
+ const legacy=receiverWith({config:'{"source":"10.0.0.112"}',legacy:true,status:{current:null}});
+ await legacy.receiver.start();
+ assert.equal(legacy.calls.length,0);assert.match(legacy.receiver.status().detail,/old VTube Input Relay/);
 });

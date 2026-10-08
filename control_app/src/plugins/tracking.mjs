@@ -20,7 +20,7 @@ export class TrackingSender {
   };
  }
  async start(){
-  try{this.settings={...this.settings,...JSON.parse(await this.readFile(this.settingsFile,'utf8'))};}catch{}
+  try{this.settings={...this.settings,...JSON.parse(stripBom(await this.readFile(this.settingsFile,'utf8')))};}catch{}
   this.wantSending=!!this.settings.startSendingOnLaunch;this.stopping=false;this.launch();
  }
  async saveSettings(){await mkdir(dirname(this.settingsFile),{recursive:true});await this.writeFile(this.settingsFile,JSON.stringify(this.settings));}
@@ -84,6 +84,8 @@ export class TrackingSender {
  }
 }
 
+const stripBom=text=>String(text).replace(/^\uFEFF/,'');
+
 // The address goes onto the helper's command line, so accept nothing but a bare IPv4 address.
 function ipv4(value){const text=String(value??'').trim();if(isIP(text)!==4)throw new Error("Enter the stream PC's IPv4 address.");return text;}
 
@@ -96,7 +98,8 @@ export class TrackingReceiver {
  }
  async start(){
   let config;
-  try{config=JSON.parse(await this.readFile(this.configFile,'utf8'));this.source=ipv4(config.source);}
+  // Windows PowerShell writes UTF-8 with a byte-order mark, which JSON.parse rejects.
+  try{config=JSON.parse(stripBom(await this.readFile(this.configFile,'utf8')));this.source=ipv4(config.source);}
   catch(e){this.state='Receiver stopped';this.lastError=`Stream PC relay setup is incomplete: ${e.message}. Complete the one-time migration before launching this app.`;return;}
   if(await this.legacyRelayPresent().catch(()=>true)){this.state='Receiver stopped';this.lastError='The old VTube Input Relay scheduled task or process is still present. Complete the one-time Stream PC migration, then launch this app again.';return;}
   this.stopping=false;await this.launch();this.timer=this.timers.setInterval(()=>this.poll().catch(()=>{}),this.interval);
