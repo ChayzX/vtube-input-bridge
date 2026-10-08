@@ -16,7 +16,7 @@ export class Dispatcher {
   const entry={signature,until:now+60000,done:false};
   entry.promise=this.tail.then(async()=>{
    if(c.expiresAt<=this.clock()) return failure('expired');
-   try {const data=await this.run(c); return {ok:true,data};} catch(e) {return failure(e.code||'action_failed',e.publicMessage||'Action failed; it may already have happened. Check the target app before pressing again.');}
+   try {const data=await this.run(c); return {ok:true,data};} catch(e) {return failure(e.code||'action_failed',e.publicMessage||`Action failed: ${String(e?.message||'unknown error').replace(/\.$/,'')}. It may already have happened; check the target app before pressing again.`);}
   }).finally(()=>{this.pending--;entry.done=true;});
   this.tail=entry.promise.then(()=>{}); this.entries.set(c.id,entry); return entry.promise;
  }

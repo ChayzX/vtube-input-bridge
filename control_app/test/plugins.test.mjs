@@ -27,7 +27,7 @@ test('a failing plugin does not stop the others, and its commands are refused', 
  const status=host.status();
  assert.equal(status.controls.started,false);assert.match(status.controls.error,/credential storage/);
  assert.equal(status.tracking.started,true);assert.equal(status.tracking.state,'Sending');
- await assert.rejects(host.action('obs.scenes',{}),/Feature unavailable/);
+ await assert.rejects(host.action('obs.scenes',{}),/Feature unavailable.*credential storage/);
  assert.equal(await host.action('tracking.ping',{}),'pong');
  await assert.rejects(host.action('unknown.thing',{}),/unsupported/);
  await assert.rejects(host.ui('tracking','constructor',{}),/Unknown request/);

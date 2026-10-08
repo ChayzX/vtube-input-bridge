@@ -54,3 +54,18 @@ test('only Fugi embed pages may access local Discord; mic/camera and LAN remain 
  assert.equal(fugiPermission('loopback-network','https://reactive.fugi.tech','https://reactive.fugi.tech/group'),true);
  for(const [p,o,u] of [['media','https://reactive.fugi.tech','https://reactive.fugi.tech/group'],['local-network','https://reactive.fugi.tech','https://reactive.fugi.tech/group'],['loopback-network','https://evil.test','https://reactive.fugi.tech/group'],['loopback-network','https://reactive.fugi.tech','https://reactive.fugi.tech/settings']])assert.equal(fugiPermission(p,o,u),false);
 });
+test('failed actions say why instead of a bare "Action failed"', async()=>{
+ const {explain,describing}=await import('../src/errors.mjs');
+ const refused=Object.assign(new Error('connect ECONNREFUSED 127.0.0.1:4455'),{code:-1});
+ assert.match(explain(refused,'OBS'),/Could not connect to OBS\. Make sure OBS is open/);
+ assert.match(explain(Object.assign(new Error('connect EHOSTUNREACH 10.0.0.119:5056'),{code:'EHOSTUNREACH'}),'the other PC'),/Could not reach the other PC/);
+ assert.match(explain(Object.assign(new Error('Authentication failed.'),{code:4009}),'OBS'),/OBS rejected the password/);
+ assert.equal(explain(new Error('No source was found by the name of Gaming.'),'OBS'),'OBS: No source was found by the name of Gaming.');
+ assert.match(explain(new Error('VTS timeout; outcome unknown'),'VTube Studio'),/^VTube Studio: VTS timeout; outcome unknown\. It may already have happened/);
+ await assert.rejects(describing('OBS',async()=>{throw refused;}),e=>e.code==='action_failed'&&/Could not connect to OBS/.test(e.publicMessage));
+ const d=new Dispatcher(async()=>describing('Spotify',async()=>{throw new Error('Spotify is not running');}));
+ const r=await d.execute(command({id:'why-1'}));
+ assert.deepEqual(r,{ok:false,code:'action_failed',message:'Spotify: Spotify is not running.'});
+ const bare=await new Dispatcher(async()=>{throw new Error('socket hang up');}).execute(command({id:'why-2'}));
+ assert.match(bare.message,/^Action failed: socket hang up\. It may already have happened/);
+});

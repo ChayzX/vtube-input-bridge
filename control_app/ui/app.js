@@ -1,5 +1,5 @@
 const el=id=>document.getElementById(id);let saved,role;
-const show=value=>{el('result').textContent=typeof value==='string'?value:JSON.stringify(value,null,2);};
+const show=value=>{el('result').textContent=typeof value==='string'?value:value?.ok===false?'Failed: '+value.message:JSON.stringify(value,null,2);};
 async function perform(fn){try{show(await fn());}catch(e){show(e.message);}}
 
 // Tracking: one card at the top; the gaming PC gets the sender controls, the stream PC the receiver status.
