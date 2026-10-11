@@ -133,12 +133,12 @@ el('destination').onkeydown=e=>{if(e.key==='Enter'&&!trackRunning){e.preventDefa
 // The window only hides on close, so settings can change behind it (tray, Stream Deck, pairing). The form tracks which
 // fields the user edited: everything else follows the stored settings, and Save sends only the form's own fields on top
 // of the settings as they are now, so it never undoes a change made elsewhere. Show/hide is never the form's to send.
-const fields=[['ownIp','ownIp'],['enabled','enabled','checked'],['obsEnabled','obs.enabled','checked'],['obsUrl','obs.url'],['obsPassword','obs.password'],['meldEnabled','meld.enabled','checked'],['meldUrl','meld.url'],['spotifyEnabled','spotify.enabled','checked'],['vtsEnabled','vts.enabled','checked'],['vtsUrl','vts.url'],['reactiveEnabled','reactive.enabled','checked'],['reactiveUrl','reactive.url']];
-const labels={ownIp:'This PC\'s address',enabled:'Remote controls',obsEnabled:'OBS Studio',obsUrl:'OBS address',obsPassword:'OBS password',meldEnabled:'Meld Studio',meldUrl:'Meld address',spotifyEnabled:'Spotify',vtsEnabled:'VTube Studio',vtsUrl:'VTube Studio address',reactiveEnabled:'Render reactives',reactiveUrl:'Fugi URL'};
+const fields=[['enabled','enabled','checked'],['notifyEnabled','notify.enabled','checked'],['updatesAuto','updates.auto','checked'],['updatesFromPeer','updates.fromPeer','checked'],['obsEnabled','obs.enabled','checked'],['obsUrl','obs.url'],['obsPassword','obs.password'],['meldEnabled','meld.enabled','checked'],['meldUrl','meld.url'],['spotifyEnabled','spotify.enabled','checked'],['vtsEnabled','vts.enabled','checked'],['vtsUrl','vts.url'],['reactiveEnabled','reactive.enabled','checked'],['reactiveUrl','reactive.url']];
+const labels={notifyEnabled:'Notifications',updatesAuto:'Check for updates automatically',updatesFromPeer:'Accept updates from the other PC',enabled:'Remote controls',obsEnabled:'OBS Studio',obsUrl:'OBS address',obsPassword:'OBS password',meldEnabled:'Meld Studio',meldUrl:'Meld address',spotifyEnabled:'Spotify',vtsEnabled:'VTube Studio',vtsUrl:'VTube Studio address',reactiveEnabled:'Render reactives',reactiveUrl:'Fugi URL'};
 const pick=(o,path)=>path.split('.').reduce((v,k)=>v?.[k],o);
 let loaded={};
 function fill(config,force){for(const [id,path,prop='value'] of fields){const value=pick(config,path)??(prop==='checked'?false:'');if(force||el(id)[prop]===loaded[id])el(id)[prop]=value;loaded[id]=value;}}
-function formOnto(config){const c=structuredClone(config);for(const [id,path,prop='value'] of fields){const keys=path.split('.');const last=keys.pop();keys.reduce((o,k)=>o[k]??={},c)[last]=el(id)[prop];}c.ownIp=c.ownIp.trim();return c;}
+function formOnto(config){const c=structuredClone(config);for(const [id,path,prop='value'] of fields){const keys=path.split('.');const last=keys.pop();keys.reduce((o,k)=>o[k]??={},c)[last]=el(id)[prop];}return c;}
 const edited=()=>!latest?.config?[]:fields.filter(([id,,prop='value'])=>el(id)[prop]!==loaded[id]);
 // The save bar appears only while something is unsaved, and names what.
 function updateDirty(){
@@ -152,11 +152,12 @@ function syncDependents(){
   const on=!!el(row.dataset.needs)?.checked;row.classList.toggle('disabled',!on);
   for(const node of row.querySelectorAll('input,button,select'))node.disabled=down||!on;
  }
- // Remote controls need a pairing; once on, they can always be turned off.
- el('enabled').disabled=down||(!latest?.config?.peer&&!el('enabled').checked);
+ el('enabled').disabled=down;
 }
 function onEdit(){syncDependents();syncToggles();updateDirty();}
 el('settings').addEventListener('input',onEdit);el('settings').addEventListener('change',onEdit);
+// Settings shown on the Advanced page belong to the same form (form="settings") but sit outside it, so they report here.
+for(const id of ['notifyEnabled','updatesAuto','updatesFromPeer'])el(id).addEventListener('change',onEdit);
 
 // A failed bind (this PC's address not up yet) is retried by the app and leaves the form editable to fix the address.
 function renderProblem(r){
@@ -174,7 +175,9 @@ function renderControls(r,force){
   const n=names();
   setText(el('peer'),r.config.peer?`Paired with ${theOther(pcs().other)}`:'Not paired yet');
   setBadge(el('peerBadge'),r.config.peer?'ok':'setup',r.config.peer?'Paired':'Not paired');
-  setText(el('enabledHelp'),r.config.peer?'Lets Stream Deck keys control apps on this PC, and shows reactives. Turning it off is the same as Pause remote controls in the tray.':'Turns on by itself when you import the other PC\'s pairing file.');
+  setText(el('enabledHelp'),r.config.peer?'Lets Stream Deck keys control apps on this PC, and shows reactives. Turning it off is the same as Pause remote controls in the tray.':'Lets Stream Deck keys control apps on this PC. Keys for the other PC work once the PCs are paired.');
+  setHidden(el('pairStartRow'),!!pairMode);setText(el('pairStartLabel'),r.config.peer?'Pair again':'Pair with a code');
+  setText(el('pairStartHelp'),r.config.peer?`Only needed if the ${n.other} was reinstalled or reset. Show a code on one PC and type it on the other.`:'Show a code on one PC and type it on the other. Both PCs must be on the same home network.');
   if(el('overlay').value!==r.overlayUrl)el('overlay').value=r.overlayUrl||'';
  }
  syncDependents();syncToggles();updateDirty();renderStatus(r);
@@ -191,8 +194,9 @@ function applyRole(){
  setText(el('trackingLead'),role==='canada'?'Keyboard and mouse input arriving from the Gaming PC, applied to your model in VTube Studio.':'Keyboard and mouse input from this PC, sent to VTube Studio on the Streaming PC.');
  setText(el('appsLead'),`Which apps on the ${n.self} the Stream Deck may control, and how to reach them.`);
  setText(el('linkLead'),`The encrypted connection to the ${n.other}. It lets the Stream Deck reach apps on both PCs.`);
+ for(const node of all('.other-pc'))setText(node,n.other);
  setText(el('homeLead'),`Live status of tracking, the link to the ${n.other} and your stream apps.`);
- setText(el('deckHelp'),role==='canada'?'The Stream Deck is plugged into the Gaming PC. Its keys reach apps on this PC through the PC link, so keep the apps you use turned on under Apps.':'In the Stream Deck app, drag VTube Control › Bridge command onto a key, then choose the PC and the action. Scene and hotkey lists fill in by themselves when you open a key\'s settings.');
+ setText(el('deckHelp'),role==='canada'?'The Stream Deck is plugged into the Gaming PC. Its keys reach apps on this PC through the PC link, so keep the apps you use turned on under Apps.':'In the Stream Deck app, open the VTube Input Bridge category and drag the action you want (OBS scene, VTube Studio hotkey, Spotify…) onto a key, then choose the PC. Scene and hotkey lists fill in by themselves.');
  nameTargets();
 }
 // The Stream Deck page's "Send to" list names both PCs.
@@ -204,7 +208,7 @@ function nameTargets(){
 // ---------- Apps: status, tests and the other PC ----------
 const APPS={
  obs:{name:'OBS Studio',settings:'OBS settings',test:'obs.scenes',okBadge:'Connected',off:'Turn on to switch OBS scenes from the Stream Deck.',fix:w=>`Open OBS on the ${w}. In Tools › WebSocket Server Settings, turn on the WebSocket server and enter its password under Apps on that PC. If you don't use OBS there, turn it off under Apps.`},
- vts:{name:'VTube Studio',settings:'VTube Studio settings',test:'vts.hotkeys',okBadge:'Connected',off:'Turn on to trigger VTube Studio hotkeys and Item Scenes.',fix:w=>`Open VTube Studio on the ${w} and turn on Start API in its settings. If it asks to allow VTube Control, click Allow, then test again.`},
+ vts:{name:'VTube Studio',settings:'VTube Studio settings',test:'vts.hotkeys',okBadge:'Connected',off:'Turn on to trigger VTube Studio hotkeys and Item Scenes.',fix:w=>`Open VTube Studio on the ${w} and turn on Start API in its settings. If it asks to allow VTube Input Bridge, click Allow, then test again.`},
  meld:{name:'Meld Studio',settings:'Meld settings',test:'meld.scenes',okBadge:'Connected',off:'Turn on if you switch scenes with Meld Studio instead of OBS.',fix:w=>`Open Meld Studio on the ${w} and turn on Settings › Advanced › Allow remote connections. If you don't use Meld there, turn it off under Apps.`},
  spotify:{name:'Spotify',settings:'Spotify settings',test:'spotify.status',okBadge:'Ready',off:'Turn on to play, pause and skip tracks from the Stream Deck.',fix:w=>`Open Spotify on the ${w} and play a track once, so Windows can see it. If you don't use Spotify there, turn it off under Apps.`}
 };
@@ -271,8 +275,9 @@ function linkView(r){
  if(!c)return {level:'warn',badge:'Starting',detail:'Starting the PC link…'};
  if(!c.peer)return {level:'setup',badge:'Not paired',detail:`Pair with the ${n.other} to use the Stream Deck on both PCs and to show reactives.`};
  if(!c.enabled)return {level:'warn',badge:'Paused',detail:'Remote controls are paused on this PC. Turn them on under PC link.'};
- if(r.bindError)return {level:'warn',badge:'Retrying',detail:sentence(r.bindError),fix:'Check that This PC\'s address under PC link is this PC\'s current address.'};
- if(peerError)return {level:'warn',badge:'Not answering',detail:sentence(peerError),retry:true,fix:`Check that VTube Input Bridge is running on the ${n.other} with remote controls on, that both PCs are on the same network, and that Windows Firewall there allows VTube Input Bridge on private networks.`};
+ if(r.bindError)return {level:'warn',badge:'Retrying',detail:sentence(r.bindError),fix:'Another program may be using the port. Restarting this PC usually clears it.'};
+ if(peerStatus?.version&&r.version&&peerStatus.version!==r.version)return {level:'warn',badge:'Different versions',detail:`The ${n.other} runs version ${peerStatus.version} and this PC runs ${r.version}. Some keys may fail until both run the same version.`,fix:'Open Advanced › Updates on the PC with the newer version and choose Update both PCs, or run the same installer on both PCs.'};
+ if(peerError)return {level:'warn',badge:'Not answering',detail:sentence(peerError),retry:true,fix:`Check that the ${n.other} is on and VTube Input Bridge is running there, and that both PCs are on the same home network. If Windows calls the network Public on either PC, set it to Private (Settings › Network & internet).`};
  return {level:'ok',badge:'Paired',detail:`Paired with ${theOther(pcs().other)}.${peerStatus?' It is answering.':''}`};
 }
 function reactivesView(r){
@@ -360,7 +365,8 @@ function renderStatus(r){
  setText(el('pcRole'),shortName(p.self));setText(el('pcAddress'),[p.self.name?p.self.role:'',p.self.ip].filter(Boolean).join(' · '));setText(el('pcVersion'),r.version?`Version ${r.version}`:'');
  setText(el('factName'),r.hostname||'—');
  setText(el('factRole'),role==='canada'?'Streaming PC: receives tracking and runs VTube Studio':'Gaming PC: sends tracking and has the Stream Deck');
- setText(el('factAddress'),c?.ownIp||'—');setText(el('factPeer'),c?.peer?pcLabel(p.other):'Not paired');setText(el('factVersion'),r.version||'—');
+ setText(el('factAddress'),c?.ownIp?`${c.ownIp} (found automatically)`:'—');
+ renderSetup(r,{tv,lv});renderUpdate(r.update);setText(el('factPeer'),c?.peer?pcLabel(p.other):'Not paired');setText(el('factVersion'),r.version||'—');
  const feature=(id,plugin,detail)=>{const running=!!plugin?.started;setBadge(el(`feat-${id}-badge`),running?'ok':'err',plugin?running?'Running':'Not running':'');setText(el('feat-'+id),plugin?.error?sentence(plugin.error):detail);};
  feature('tracking',r.plugins?.tracking,tv.title);
  const using=Object.keys(APPS).filter(id=>c?.[id]?.enabled).map(id=>APPS[id].name);
@@ -720,6 +726,94 @@ el('logClear').onclick=()=>{logState.clearedAt=Math.max(0,...logState.entries.ke
 const logLine=e=>`${new Date(e.t).toISOString()} ${e.level.toUpperCase().padEnd(5)} ${e.source.padEnd(8)} ${e.msg}${e.repeat>1?` (×${e.repeat})`:''}`;
 el('logCopy').onclick=()=>{const lines=[...logState.entries.values()].filter(logMatches).map(logLine);if(!lines.length)return toast('Nothing to copy.');copy(lines.join('\n'),`${fmt(lines.length)} log entr${lines.length===1?'y':'ies'} copied.`);};
 el('logOpen').onclick=()=>busy(el('logOpen'),async()=>{await window.control.openLogFolder();});
+
+// ---------- Pairing with a code ----------
+// "Show a pairing code" waits for the other PC; "Enter a code" finds the PC showing one and pairs with it.
+let pairMode=null,pairPoll=null;
+function pairPanels(mode){
+ pairMode=mode;setHidden(el('pairShowPanel'),mode!=='show');setHidden(el('pairEnterPanel'),mode!=='enter');setHidden(el('pairStartRow'),!!mode);
+ if(mode!=='show'){clearInterval(pairPoll);pairPoll=null;}
+ if(mode!=='enter'){setHidden(el('pairChoose'),true);el('pairChoose').replaceChildren();}
+}
+el('pairShow').onclick=()=>busy(el('pairShow'),async()=>{
+ const {code,expiresAt}=await window.control.pairStart();setText(el('pairCode'),code);pairPanels('show');
+ const n=names();const tick=async()=>{
+  const left=Math.max(0,Math.round((expiresAt-Date.now())/1000));
+  setText(el('pairShowHelp'),`On the ${n.other}, open PC link, choose Enter a code and type it. The code works for ${Math.floor(left/60)}:${String(left%60).padStart(2,'0')} more.`);
+  let st;try{st=await window.control.pairStatus();}catch{return;}
+  if(st.state==='paired'){pairPanels(null);toast(`Paired with ${st.peer}. Remote controls are on.`);await refresh();}
+  else if(st.state==='failed'||st.state==='expired'){pairPanels(null);toast(st.message||'Pairing stopped. Start again.','err');}
+ };
+ pairPoll=setInterval(tick,1000);void tick();
+});
+el('pairShowCancel').onclick=()=>{pairPanels(null);void window.control.pairCancel().catch(()=>{});};
+el('pairEnter').onclick=()=>{pairPanels('enter');el('pairInput').value='';el('pairInput').focus();};
+el('pairEnterCancel').onclick=()=>pairPanels(null);
+async function join(address){
+ const result=await window.control.pairJoin({code:el('pairInput').value,address});
+ if(result?.choose){
+  // More than one PC is showing a code: let the streamer pick theirs by name.
+  const box=el('pairChoose');box.replaceChildren(...result.choose.map(pc=>{const b=document.createElement('button');b.type='button';b.className='btn';b.textContent=pc.label;b.onclick=()=>busy(b,()=>join(pc.address));return b;}));
+  setHidden(box,false);toast('More than one PC is showing a code. Choose yours.');return;
+ }
+ pairPanels(null);toast(result?.message||'Paired.');await refresh();
+}
+el('pairJoin').onclick=()=>busy(el('pairJoin'),()=>join());
+el('pairInput').onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();el('pairJoin').click();}};
+
+// ---------- Updates ----------
+function renderUpdate(u){
+ if(!u)return;
+ const ready=u.ready||u.available;const paired=!!latest?.config?.peer;
+ setText(el('updateTitle'),u.busy?`${u.busy}…`:ready?`Version ${ready.version} is ready`:`Version ${u.current}`);
+ setText(el('updateText'),u.error?sentence(u.error):ready?(paired?`This PC runs ${u.current}. Updating installs ${ready.version} on both PCs; each restarts by itself.`:`This PC runs ${u.current}. Updating installs ${ready.version} and restarts the app.`)
+  :u.checkedAt?`Up to date (checked ${ago(u.checkedAt)}). Both PCs must run the same version; updating here also updates the other PC.`:'Both PCs must run the same version. Updating here also updates the other PC.');
+ const install=el('updateInstall');setHidden(install,!ready);setText(install,paired?'Update both PCs':'Update');
+ for(const id of ['updateCheck','updateFile','updateInstall'])el(id).disabled=!!u.busy||u.checking&&id==='updateCheck';
+}
+el('updateCheck').onclick=()=>busy(el('updateCheck'),async()=>{const u=await window.control.updateCheck();renderUpdate(u);if(!u.error)toast(u.available?`Version ${u.available.version} is available.`:'You have the latest version.');});
+el('updateFile').onclick=()=>busy(el('updateFile'),async()=>renderUpdate(await window.control.updateChooseFile()));
+el('updateInstall').onclick=()=>busy(el('updateInstall'),async()=>{
+ const paired=!!latest?.config?.peer;
+ if(!confirm(paired?'Install the update on both PCs now? Each app restarts by itself; tracking pauses for about a minute.':'Install the update now? The app restarts by itself.'))return;
+ const {message,update}=await window.control.updateInstall({both:true});renderUpdate(update);toast(message);
+});
+
+// ---------- First-run checklist ----------
+// One-time setup steps on Home. A step stays ticked once it has worked (remembered on this PC), and the card goes
+// away when everything is done or the streamer hides it.
+const store={get:k=>{try{return localStorage.getItem(k);}catch{return null;}},set:(k,v)=>{try{localStorage.setItem(k,v);}catch{}}};
+function everDone(key,now){if(now)store.set('setup.'+key,'1');return now||store.get('setup.'+key)==='1';}
+function renderSetup(r,{tv}){
+ const s=r.setup||{};const n=names();const obsOk=!!r.status?.services?.obs?.ok;
+ const steps=role==='canada'?[
+  ['paired',`Pair with the ${n.other}`,'PC link › Show a pairing code, then type it on the Gaming PC.',s.paired,'link'],
+  ['vts','Allow VTube Input Bridge in VTube Studio','Open VTube Studio, turn on its API, then press Test on the VTube Studio card and click Allow.',everDone('vts',s.vtsAllowed),'apps'],
+  ['tracking',`Get tracking from the ${n.other}`,'Starts by itself once the PCs are paired and VTube Studio is open.',everDone('tracking',tv.level==='ok'),'tracking'],
+  ['obs','Connect OBS','Turn on OBS’s WebSocket server, enter its password under Apps, and press Test.',everDone('obs',obsOk),'apps'],
+  ['overlay','Show reactives in VTube Studio','Reactives › copy the Web Item URL and add it as a Web Item in VTube Studio.',everDone('overlay',s.overlaySeen),'reactives'],
+ ]:[
+  ['paired',`Pair with the ${n.other}`,'PC link › Enter a code, then type the code shown on the Streaming PC.',s.paired,'link'],
+  ['tracking',`Send tracking to the ${n.other}`,'Starts by itself once the PCs are paired.',everDone('tracking',tv.level==='ok'),'tracking'],
+  ['plugin','Install the Stream Deck plugin','The installer adds it. If it is missing, run the installer again with the Stream Deck app open.',everDone('plugin',s.streamDeckPlugin),'deck'],
+  ['deck','Press a Stream Deck key','Drag a VTube Input Bridge action onto a key and press it.',everDone('deck',s.deckSeen),'deck'],
+  ['fugi','Add your Fugi overlay (optional)','Paste your Fugi browser-source URL under Reactives.',everDone('fugi',s.fugiUrl),'reactives'],
+ ];
+ const left=steps.filter(x=>!x[3]).length;const hidden=store.get('setup.hidden')==='1';
+ setHidden(el('setup'),!latest?.config||hidden||left===0);if(hidden||left===0)return;
+ setText(el('setupText'),`${left} of ${steps.length} step${steps.length===1?'':'s'} left. Each one ticks itself off when it works.`);
+ const key=JSON.stringify(steps.map(x=>[x[0],x[1],x[3]]));if(el('setupSteps').dataset.key===key)return;el('setupSteps').dataset.key=key;
+ el('setupSteps').replaceChildren(...steps.map(([id,title,help,done,page])=>{
+  const li=document.createElement('li');li.className=done?'done':'';
+  const mark=document.createElement('span');mark.className='mark';mark.setAttribute('aria-hidden','true');if(done)mark.innerHTML='<svg class="i"><use href="#i-check"/></svg>';
+  const text=document.createElement('span');const b=document.createElement('b');b.textContent=title;const h=document.createElement('span');h.className='step-help';h.textContent=done?'Done':help;text.append(b,h);
+  const sr=document.createElement('span');sr.className='sr-only';sr.textContent=done?' (done)':' (to do)';b.append(sr);
+  li.append(mark,text);
+  if(!done){const go_=document.createElement('button');go_.type='button';go_.className='btn subtle';go_.textContent='Open';go_.setAttribute('aria-label',`Open ${title}`);go_.onclick=()=>go(page);li.append(go_);}
+  return li;
+ }));
+}
+el('setupHide').onclick=()=>{store.set('setup.hidden','1');setHidden(el('setup'),true);};
 
 // ---------- Start ----------
 go((globalThis.location?.hash||'').slice(1)||'home');

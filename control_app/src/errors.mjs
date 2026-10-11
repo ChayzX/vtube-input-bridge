@@ -3,7 +3,7 @@
 const UNKNOWN=' It may already have happened; check the target app before pressing again.';
 // "Peer connection timeout" is the TLS connect to the other PC timing out (as a firewall dropping it does): no request
 // was sent yet.
-const unreachable=/ECONNREFUSED|EHOSTUNREACH|ENETUNREACH|ENOTFOUND|EADDRNOTAVAIL|Peer connection timeout/;
+export const unreachable=/ECONNREFUSED|EHOSTUNREACH|ENETUNREACH|ENOTFOUND|EADDRNOTAVAIL|Peer connection timeout/;
 export function explain(e,app){
  if(e?.publicMessage)return e.publicMessage;
  const message=String(e?.message||e||'').trim().replace(/\.$/,'');const code=String(e?.code??'');

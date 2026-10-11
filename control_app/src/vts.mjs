@@ -1,9 +1,10 @@
 import {checkDeadline} from './deadline.mjs';
 import WebSocket from 'ws'; import {randomUUID} from 'node:crypto';import {loopbackWs} from './obs.mjs';import {userError} from './errors.mjs';
-const identity={pluginName:'VTube Control',pluginDeveloper:'ChayzX'};
+// Renamed from "VTube Control" in 1.0: VTube Studio asks once to allow the new name.
+const identity={pluginName:'VTube Input Bridge',pluginDeveloper:'ChayzX'};
 // VTube Studio may run on either PC; a press from the other PC arrives prefixed with "On the other PC:", so the text
 // names no PC itself.
-const APPROVE='Click Allow in the VTube Studio window to let VTube Control use it, then press again.';
+const APPROVE='VTube Studio is asking to allow VTube Input Bridge: click Allow in the VTube Studio window, then press again.';
 // One VTube Studio API connection; every request still pending fails when it closes.
 function session(url){
  const ws=new WebSocket(loopbackWs(url),{maxPayload:1024*1024}); const pending=new Map();
@@ -18,6 +19,13 @@ function session(url){
 // its own connection with a long timeout (as the relay does), at most one per address. The press that started it
 // returns at once; the token is saved when it arrives.
 const approvals=new Map();
+// Asking for approval only makes sense when VTube Studio is there to show the question: otherwise the connection error
+// goes back, which explains how to open VTube Studio and turn on its API.
+async function reachable(url,timeout=2000){
+ const ws=new WebSocket(loopbackWs(url));ws.on('error',()=>{});let timer;
+ try{await Promise.race([new Promise((resolve,reject)=>{ws.once('open',resolve);ws.once('error',reject);}),new Promise((_,reject)=>timer=setTimeout(()=>reject(Object.assign(new Error('connect ETIMEDOUT VTube Studio'),{code:'ECONNREFUSED'})),timeout))]);}
+ finally{clearTimeout(timer);ws.terminate();}
+}
 export function requestApproval(url,saveToken,timeout=90000){
  if(approvals.has(url))return approvals.get(url);
  let timer;const s=session(url);
@@ -29,13 +37,13 @@ export async function vtsAction(options,action,args={}) {
  if(!['vts.hotkeys','vts.trigger'].includes(action))throw userError('Unsupported VTS action');
  if(action==='vts.trigger'&&(typeof args.hotkey!=='string'||!args.hotkey||args.hotkey.length>128))throw userError('Choose a VTS hotkey');
  const url=options.url||'ws://127.0.0.1:8001';
- if(!options.token){requestApproval(url,options.saveToken,options.approvalTimeout);throw userError(APPROVE,'not_approved');}
+ if(!options.token){await reachable(url);requestApproval(url,options.saveToken,options.approvalTimeout);throw userError(APPROVE,'not_approved');}
  const s=session(url);let timer;
  try{return await Promise.race([(async()=>{
   await s.opened;
   const auth=await s.request('AuthenticationRequest',{...identity,authenticationToken:options.token});
   // The stored token stops working when the plugin is removed in VTube Studio or VTube Studio is reset: ask again.
-  if(!auth.authenticated){await options.saveToken?.('');requestApproval(url,options.saveToken,options.approvalTimeout);throw userError('VTube Studio no longer accepts VTube Control’s earlier approval. '+APPROVE,'not_approved');}
+  if(!auth.authenticated){await options.saveToken?.('');requestApproval(url,options.saveToken,options.approvalTimeout);throw userError('VTube Studio needs to approve VTube Input Bridge again: click Allow in the VTube Studio window, then press again.','not_approved');}
   checkDeadline(options);return action==='vts.hotkeys'?s.request('HotkeysInCurrentModelRequest',{}):s.request('HotkeyTriggerRequest',{hotkeyID:args.hotkey});
  })(),new Promise((_,reject)=>timer=setTimeout(()=>reject(new Error('VTS timeout; outcome unknown')),5000))]);}
  finally{clearTimeout(timer);s.close();}

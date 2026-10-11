@@ -1,8 +1,10 @@
 import {app,BrowserWindow,Tray,Menu,ipcMain,dialog,safeStorage,nativeImage,nativeTheme,shell} from 'electron';
+import {PairingHost,createPairingServer,joinPairing,readCode,showCode,PAIRING_PORT} from './pairing.mjs';import {Discovery,addressToward,onSubnet} from './discovery.mjs';
+import * as updates from './updates.mjs';import {Notifier} from './notify.mjs';import {createReadStream,existsSync,readFileSync} from 'node:fs';import {stat} from 'node:fs/promises';
 import {contextMenuTemplate} from './contextmenu.mjs';import {trayHealth} from './health.mjs';import {trayIconPng,TRAY_SIZES} from './trayicon.mjs';
 import {readFile,writeFile,mkdir,rename,copyFile} from 'node:fs/promises';import {join,dirname} from 'node:path';import {fileURLToPath} from 'node:url';import {randomBytes,randomUUID,createHash,X509Certificate} from 'node:crypto';import selfsigned from 'selfsigned';
 import {SerialQueue} from './serial.mjs';import {Retry} from './retry.mjs';import {checkDeadline} from './deadline.mjs';
-import {defaults,upgradeConfig,validateConfig,validateSave,parsePairingFile} from './config.mjs';import {Dispatcher} from './commands.mjs';import {FrameStore} from './frames.mjs';import {createApi,createOverlay} from './server.mjs';import {requestPeer,forwardCommand,observePeer} from './client.mjs';import {Metrics,outcomeKind} from './metrics.mjs';import {userError} from './errors.mjs';import {ReactiveRenderer,openFugiLogin} from './reactive.mjs';
+import {defaults,upgradeConfig,validateConfig,validateSave,parsePairingFile,privateIp,validatePair} from './config.mjs';import {Dispatcher} from './commands.mjs';import {FrameStore} from './frames.mjs';import {createApi,createOverlay} from './server.mjs';import {requestPeer,forwardCommand,observePeer,pushUpdate} from './client.mjs';import {Metrics,outcomeKind} from './metrics.mjs';import {userError,unreachable} from './errors.mjs';import {ReactiveRenderer,openFugiLogin} from './reactive.mjs';
 import {hostname as osHostname} from 'node:os';import {cleanHostname,pcLabel,peerHostname,roleLabel} from './names.mjs';import {Logger,SOURCES} from './logger.mjs';
 import {PluginHost} from './plugins/host.mjs';import {TrackingSender,TrackingReceiver} from './plugins/tracking.mjs';import {createControlsPlugin} from './plugins/controls.mjs';import {createReactivesPlugin} from './plugins/reactives.mjs';
 
@@ -10,8 +12,13 @@ import {PluginHost} from './plugins/host.mjs';import {TrackingSender,TrackingRec
 // owns the window, tray, settings and the secure link between the two PCs. Tracking starts first and never depends on
 // the link, so a companion failure cannot stop the input feed.
 const APP_NAME='VTube Input Bridge';
+// The version this app was built as (package.json), the same in development and in the packaged app.
+const VERSION=JSON.parse(readFileSync(new URL('../package.json',import.meta.url),'utf8')).version;
 const here=dirname(fileURLToPath(import.meta.url));const dir=join(app.getPath('appData'),'VTubeControl');app.setPath('userData',dir);
-let config=null,identity=null,linkError='Starting',window,tray,quitting=false,shutdownPromise=null,servers=[],last={};
+let config=null,identity=null,linkError='Starting',window,tray,quitting=false,shutdownPromise=null,last={};
+// When Stream Deck keys and the VTube Studio overlay were last seen working, for the setup checklist.
+const seenAt={deck:0,overlay:0};
+let discovery=null,ownPin='';
 // This PC's Windows computer name, and the other PC's as it last reported it over the link.
 const hostname=cleanHostname(osHostname());let peerName='';
 // The app's log: memory for the Logs page, and a rolling file (2 × 1 MB) in the data folder. Debug logging is a
@@ -38,6 +45,8 @@ observePeer(({method,path,ms,ok,bytes,error})=>{
   // A failed command is logged with its action by run(); other requests are logged here.
   if(!ok&&error&&path!=='/command')log.warn('peer',`${method} ${path} to the other PC failed: ${error.message}`);
   if(!ok&&peerAnswering!==false&&error)log.warn('peer','The other PC stopped answering: '+error.message);
+  // Not there any more: it may have a new address, so look for it (at most every 10 seconds).
+  if(!ok&&error&&unreachable.test(`${error.code||''} ${error.message||''}`))void locatePeer();
   if(ok&&peerAnswering===false)log.info('peer','The other PC is answering again');
   if(error||ok)peerAnswering=ok;
  }
@@ -53,6 +62,7 @@ function peerRequest({method,path,status,ms,result,bytes}){
 }
 function localRequest({path,status,ms,result}){
  if(path!=='/command'){metrics.tally('api.other');return;}
+ if(status===200)seenAt.deck=Date.now();
  const kind=status===200?outcomeKind(result):'refused';metrics.count('api.'+kind);metrics.observe('api.ms',ms);
  if(kind==='refused')log.info('api',`Stream Deck command refused: ${result?.code||'HTTP '+status}`);
  else if(log.enabled('debug','api'))log.debugLog('api',`Stream Deck command ${kind} in ${Math.round(ms)} ms`);
@@ -66,7 +76,7 @@ function sampleMetrics(){
  if(t.role==='sender')metrics.gauge('tracking.ackAge',t.running&&t.lastAckUnixMs>0?Math.min(Math.max(now-t.lastAckUnixMs,0),30000):NaN);
  else if(t.role==='receiver')metrics.gauge('tracking.packetAge',t.lastPacketUnixMs>0?Math.min(Math.max(now-t.lastPacketUnixMs,0),30000):NaN);
  metrics.tick();
- noteChanges(t);
+ noteChanges(t);watchHealth(t);
 }
 // Tracking, reactive renderer and PC link changes go to the log as they happen (checked once a second).
 let seen={};
@@ -91,10 +101,17 @@ async function resolveRole(){
 }
 
 const host=new PluginHost();
-const status=()=>({hostname,enabled:!!config?.enabled,role:config?.role,peer:config?.peer?.host||'Not paired',services:last,reactive:renderer.state,frameFresh:!!frames.get(),linkError,bindError:bind.error,plugins:host.status()});
+// This PC's address as the other PC sees it: found on the network each time, never typed (see discovery.mjs).
+const ownIp=()=>addressToward(config?.peer?.host);
+const status=()=>({hostname,version:VERSION,ownIp:ownIp(),enabled:!!config?.enabled,role:config?.role,peer:config?.peer?.host||'Not paired',services:last,reactive:renderer.state,frameFresh:!!frames.get(),linkError,bindError:bindError(),plugins:host.status()});
 async function run(c){
  if(!config?.enabled)throw userError('Remote controls are paused on this PC. Turn on "Remote controls" under PC link and save.','disabled');
- if(c.target==='peer'){if(!config.peer)throw userError('This PC is not paired with the other PC yet. Pair them under PC link first.','not_paired');let result;try{result=await forwardCommand(config.peer,c);}catch(e){log.warn('peer',`${c.action} on the other PC failed: ${e?.publicMessage||e?.message||e}`);throw e;}if(c.action==='bridge.status')notePeer(result);return result;}
+ if(c.target==='peer'){if(!config.peer)throw userError('This PC is not paired with the other PC yet. Pair them under PC link first.','not_paired');let result;
+  // When the other PC is not where it was (the router gave it a new address), find it and send once more. Only a
+  // request that never reached it is sent again, so nothing can happen twice.
+  try{try{result=await forwardCommand(config.peer,c);}catch(e){if(!e?.unreachable||!await locatePeer())throw e;result=await forwardCommand(config.peer,c);}}
+  catch(e){log.warn('peer',`${c.action} on the other PC failed: ${e?.publicMessage||e?.message||e}`);throw e;}
+  if(c.action==='bridge.status')notePeer(result);return result;}
  if(c.action==='bridge.status')return status();
  const deadline={expiresAt:c.expiresAt,assertActive:()=>{if(!config.enabled)throw userError("Remote controls were paused while this action was waiting.","disabled");}};checkDeadline(deadline);
  const service=c.action.split('.')[0];
@@ -107,34 +124,83 @@ const dispatcher=new Dispatcher(run);
 // file (if any) is shown then, else just its role and address.
 function notePeer(data){const next=peerHostname(data,peerName,'');if(next!==peerName){peerName=next;updateTray();}}
 const currentPeerName=()=>peerHostname(null,peerName,config?.peer?.name);
-// Asked once the link is up and then every 5 minutes, so the tray can name the other PC with the window closed.
+// Asked once the link is up and then every 15 seconds: the tray names the other PC with the window closed, and a PC that
+// stopped answering is noticed (and looked for at a new address) before a key press needs it.
 async function refreshPeerName(){
- if(linkError||!config?.enabled||!config.peer||bind.error)return;
+ if(linkError||!config?.enabled||!config.peer||bindError())return;
  try{notePeer(await forwardCommand(config.peer,{id:randomUUID(),expiresAt:Date.now()+5000,target:'local',action:'bridge.status',args:{}}));}catch{}
 }
-async function closeServers(){for(const s of servers){s.closeAllConnections();await new Promise(r=>s.close(r));}servers=[];}
-async function startServers(){
- await closeServers();renderer.stop();frames.clear();last={};
+let localServers=[],peerServer=null;
+async function closeServer(server){if(!server)return;server.closeAllConnections?.();await new Promise(r=>server.close(r));}
+async function closeServers(){await closeServer(peerServer);peerServer=null;for(const server of localServers)await closeServer(server);localServers=[];}
+const listen=(server,port,address)=>new Promise((resolve,reject)=>{server.once('error',reject);server.listen(port,address,()=>{server.off('error',reject);resolve();});});
+// The Stream Deck API (5057) and the overlay (5058) are loopback only, so they never depend on the network: a late,
+// changed or missing address cannot stop local keys (they answer "paused" or "not paired" when that is the reason).
+async function startLocal(){
+ if(localServers.length)return;
  const connection=join(dir,'plugin-connection.json');await writeFile(connection,JSON.stringify({port:5057,token:identity.localToken}),{mode:0o600});
- if(!config.enabled)return;
  const overlayFrames={get:()=>config.reactive.visible?frames.get():null};
- const list=[{server:createApi({token:identity.localToken,dispatcher,status,onRequest:localRequest}),port:5057,host:'127.0.0.1'},
-  {server:createApi({token:identity.networkToken,tls:identity.cert,source:config.peer.host,dispatcher,status,frames,onRequest:peerRequest}),port:5056,host:config.ownIp},
-  {server:createOverlay(overlayFrames,identity.overlayToken,served=>metrics.count(served?'overlay.frames':'overlay.empty')),port:5058,host:'127.0.0.1'}];
- try{for(const {server,port,host:address} of list){await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(port,address,resolve);});servers.push(server);}}
- catch{await closeServers();throw new Error(`Could not open ${config.ownIp} or ports 5056–5058 on this PC. Retrying; if this lasts, check “This PC’s address” under PC link and that no other program uses those ports. Tracking is unaffected.`);}
+ const list=[[createApi({token:identity.localToken,dispatcher,status,onRequest:localRequest}),5057],[createOverlay(overlayFrames,identity.overlayToken,served=>{metrics.count(served?'overlay.frames':'overlay.empty');if(served)seenAt.overlay=Date.now();}),5058]];
+ try{for(const [server,port] of list){await listen(server,port,'127.0.0.1');localServers.push(server);}}
+ catch{for(const server of localServers)await closeServer(server);localServers=[];throw new Error('Could not open ports 5057 and 5058 on this PC; another program may be using them. Retrying. Tracking is unaffected.');}
 }
-// At sign-in the network may not have given this PC its address yet, so a failed bind is retried with backoff; it never
-// turns controls off. Each later restart of the servers (save, pairing, tray) goes through here too.
-const bind=new Retry(()=>transactions.run(async()=>{await startServers();autoStartRenderer();}),{onChange:error=>{updateTray();
- if(error!==seen.bind){if(error)log.warn('app',error);else if(config?.enabled)log.info('app',`Remote controls are listening on ${config.ownIp}:5056`);seen.bind=error;}
+// The PC link (5056) listens on every adapter, so it keeps working when the router hands either PC a new address. Only
+// private addresses are let in, every request needs the pairing token over pinned TLS, and the installer's firewall
+// rule allows it on private networks only.
+async function startPeer(){
+ await closeServer(peerServer);peerServer=null;renderer.stop();frames.clear();last={};
+ if(!config.peer)return;
+ const server=createApi({token:identity.networkToken,tls:identity.cert,source:privateIp,dispatcher,status,frames,onRequest:peerRequest,onAuthenticated:peerSeenAt,update:receiveUpdate});
+ try{await listen(server,5056,'0.0.0.0');peerServer=server;}
+ catch{throw new Error('Could not open port 5056 for the PC link; another program may be using it. Retrying. Tracking is unaffected.');}
+}
+const bindError=()=>localBind.error||bind.error;
+const localBind=new Retry(()=>startLocal(),{onChange:error=>{updateTray();if(error!==seen.local){if(error)log.warn('app',error);else log.info('app','Stream Deck connection open on this PC');seen.local=error;}}});
+// At sign-in the network may not be up yet, so a failed bind is retried with backoff; it never turns controls off. Each
+// later restart of the PC link (save, pairing, tray) goes through here too.
+const bind=new Retry(()=>transactions.run(async()=>{await startPeer();autoStartRenderer();}),{onChange:error=>{updateTray();
+ if(error!==seen.bind){if(error)log.warn('app',error);else if(config?.peer)log.info('app','PC link listening on port 5056');seen.bind=error;}
  if(!error)void refreshPeerName();}});
+
+// The other PC's address follows it around the network. It is updated when the other PC connects from a new address
+// (its token proves who it is), or when this PC cannot reach it and finds it with discovery.
+const opposite=()=>config?.role==='canada'?'pantry':'canada';
+function peerSeenAt(address){if(config?.peer&&address&&address!==config.peer.host)void movePeer(address,'it connected from there');}
+async function movePeer(address,why){
+ const moved=await transactions.run(async()=>{
+  if(!config?.peer||config.peer.host===address||!privateIp(address))return false;
+  const before=config.peer.host;config.peer={...config.peer,host:address};await saveProtected(settingsFile,config);
+  log.info('peer',`The other PC's address changed from ${before} to ${address} (${why})`);return true;
+ });
+ if(moved){followPeer();updateTray();}
+ return moved;
+}
+// Tracking follows the other PC: the Gaming PC sends to the Streaming PC's current address, and the Streaming PC's
+// relay listens for the Gaming PC's.
+function followPeer(){
+ const tracking=host.get('tracking');const to=config?.peer?.host;if(!tracking||!to)return;
+ if(config.role==='pantry'){const t=tracking.status();if(tracking.wantSending&&t.destination!==to)host.ui('tracking','start',{destination:to}).then(()=>log.info('tracking',`Sending to the Streaming PC at ${to}`),e=>log.warn('tracking',`Could not send to ${to}: ${e.message}`));}
+ else void tracking.sourceChanged?.().catch(()=>{});
+}
+let locating=null,lastLocate=0;
+function locatePeer(){
+ if(!config?.peer||!discovery)return Promise.resolve(false);
+ if(locating)return locating;if(Date.now()-lastLocate<10000)return Promise.resolve(false);lastLocate=Date.now();
+ return locating=(async()=>{
+  const found=(await discovery.find({want:'peer',pin:config.peer.pin})).filter(f=>f.role===opposite());
+  if(!found.length){log.info('peer','Looked for the other PC on the network; it did not answer');return false;}
+  if(found.some(f=>f.address===config.peer.host))return false;
+  return movePeer((found.find(f=>onSubnet(f.address))||found[0]).address,'found on the network');
+ })().catch(()=>false).finally(()=>{locating=null;});
+}
+
 // Loads settings and identity and opens the secure link. A failure here disables only controls and reactives.
 async function startLink(role){
  if(!safeStorage.isEncryptionAvailable()||safeStorage.getSelectedStorageBackend?.()==='basic_text')throw Error('Secure credential storage unavailable');
  config=validateConfig(upgradeConfig(await loadProtected(settingsFile,()=>defaults(role)),role));
  identity=await loadProtected(identityFile,async()=>({localToken:hex(),networkToken:hex(),overlayToken:hex(),cert:await selfsigned.generate([{name:'commonName',value:'VTube Control'}],{keySize:2048,days:3650,algorithm:'sha256'})}));
  await saveProtected(identityFile,identity);
+ ownPin=createHash('sha256').update(new X509Certificate(identity.cert.cert).raw).digest('hex');
 }
 // The gaming PC starts rendering reactives by itself: at launch, and again after saving settings or pairing (both
 // restart the link, which stops the renderer). A failure is shown in the renderer state and retried (Fugi or the
@@ -149,8 +215,95 @@ function autoStartRenderer(){
 }
 const requireLink=()=>{if(linkError)throw new Error('Remote controls and reactives are unavailable: '+linkError);};
 
+// Pairing with a code (pairing.mjs). Either PC can show the code; the other finds it on the network and types it.
+let pairing=null,pairingServer=null,pairingTimer=null,discoveryTimer=null;
+async function stopPairing(){clearTimeout(pairingTimer);pairingTimer=null;const server=pairingServer;pairingServer=null;await closeServer(server);}
+const myDetails=()=>({role:config.role,port:5056,pin:ownPin,token:identity.networkToken,name:hostname,version:VERSION});
+const peerLabel=peer=>pcLabel({hostname:peer.name,role:opposite(),ip:peer.host});
+// Saves the other PC's details from either pairing route, turns remote controls on, and restarts the PC link.
+async function savePairing(peer){
+ const value=validatePair({host:peer.host,port:5056,pin:peer.pin,token:peer.token,name:peer.name});
+ await transactions.run(async()=>{validateConfig({...config,peer:value});config.peer=value;config.enabled=true;peerName=value.name||'';updateSecrets();await saveProtected(settingsFile,config);log.info('app',`Paired with ${peerLabel(value)}`);});
+ await bind.run();followPeer();updateTray();
+ return value;
+}
+
+// Updates (updates.mjs). The installer is the update; the PC that updates first sends it to the other PC, so both run
+// the same version.
+const localData=join(process.env.LOCALAPPDATA||join(app.getPath('home'),'AppData','Local'),'VTubeControl');
+const updateDir=join(localData,'updates');
+const update={checking:false,busy:'',available:null,ready:null,error:'',checkedAt:0};
+const updateView=()=>({current:VERSION,checking:update.checking,busy:update.busy,available:update.available&&{version:update.available.version,page:update.available.page},ready:update.ready&&{version:update.ready.version},error:update.error,checkedAt:update.checkedAt,auto:!!config?.updates?.auto,fromPeer:!!config?.updates?.fromPeer});
+async function checkUpdates(manual=false){
+ if(update.checking)return updateView();update.checking=true;
+ try{
+  const release=await updates.latestRelease();update.checkedAt=Date.now();update.error='';
+  if(release&&updates.isNewer(release.version,VERSION)){
+   if(update.available?.version!==release.version){log.info('app',`Version ${release.version} is available`);notifier.notify({title:'Update available',body:`VTube Input Bridge ${release.version} is ready. Open the app to update both PCs.`});}
+   update.available=release;
+  }else{update.available=null;if(manual&&!release)update.error='No published release was found. While the project’s releases are private, download the installer yourself and choose Install from file.';}
+ }catch(e){update.error=e.message;if(manual)log.warn('app','Checking for updates failed: '+e.message);}
+ finally{update.checking=false;}
+ return updateView();
+}
+// Installs the ready installer: first on the other PC (when asked and paired), then on this PC if it is newer here.
+async function installUpdate({both=true}={}){
+ if(update.busy)throw new Error('An update is already in progress.');
+ try{
+  if(!update.ready&&update.available){update.busy='Downloading';const path=await updates.download(update.available.url,updateDir);update.ready={path,version:await updates.installerVersion(path)};}
+  if(!update.ready)throw new Error('There is no update to install. Check for updates, or choose an installer file.');
+  const {path,version}=update.ready;const messages=[];
+  if(both&&config?.peer){
+   update.busy='Sending to the other PC';log.info('app',`Sending version ${version} to the other PC`);
+   const size=(await stat(path)).size;const sha256=await updates.fileSha256(path);
+   let answer;try{answer=await pushUpdate(config.peer,{stream:createReadStream(path),size,sha256,version});}catch(e){throw new Error('Could not send the update to the other PC: '+(e?.message||e)+'. Nothing was installed.');}
+   if(answer?.ok){messages.push(`The other PC is installing ${version} and will restart by itself.`);log.info('app',`The other PC accepted version ${version}`);}
+   else if(answer?.code==='not_newer')messages.push('The other PC already runs this version.');
+   else throw new Error('The other PC did not take the update: '+(answer?.message||answer?.code||'no reason given')+' Nothing was installed.');
+  }
+  if(updates.isNewer(version,VERSION)){
+   update.busy='Installing';log.info('app',`Installing version ${version} on this PC; the app restarts by itself`);
+   updates.runInstaller(path);setTimeout(()=>void quit(),1500);messages.push(`This PC is installing ${version} and will restart by itself.`);
+  }
+  return messages.join(' ')||'Nothing to install on this PC.';
+ }finally{if(update.busy!=='Installing')update.busy='';}
+}
+// An installer pushed by the other PC (PUT /update on the PC link).
+async function receiveUpdate(req){
+ if(!config?.updates?.fromPeer)return {ok:false,code:'refused',message:'This PC does not accept updates from the other PC. Turn on “Accept updates from the other PC” there, or run the installer on it.'};
+ if(update.busy)return {ok:false,code:'busy',message:'This PC is already updating.'};
+ try{
+  update.busy='Receiving';const received=await updates.receive(req,{dir:updateDir,current:VERSION});
+  update.busy='Installing';log.info('app',`The other PC sent version ${received.version}; installing it now. The app restarts by itself.`);
+  setTimeout(()=>{try{updates.runInstaller(received.path);}catch(e){log.error('app','Could not start the update: '+e.message);update.busy='';return;}void quit();},1500);
+  return {ok:true,version:received.version};
+ }catch(e){update.busy='';log.warn('app','An update from the other PC was refused: '+e.message);return {ok:false,code:e.code||'invalid_request',message:e.message};}
+}
+
+// Notifications while the window is closed (notify.mjs). Problems only count once things had worked in this session,
+// so a PC that is simply not streaming yet stays quiet.
+const notifier=new Notifier({show:(title,content)=>tray?.displayBalloon({title,content,icon:trayIcon(trayLevel||'ok')}),enabled:()=>config?.notify?.enabled!==false});
+let worked={tracking:false,peer:false};
+function watchHealth(t){
+ const trackingOk=t.role==='sender'?!!t.running&&!!t.receiverConnected:t.state==='Receiving input';
+ if(trackingOk)worked.tracking=true;
+ notifier.watch('tracking',worked.tracking&&!trackingOk,{after:15000,
+  message:{title:'Tracking stopped',body:t.role==='sender'?'The Streaming PC stopped confirming tracking. Open VTube Input Bridge to see why.':'No input from the Gaming PC for 15 seconds. Open VTube Input Bridge to see why.'},
+  fixed:{title:'Tracking is back',body:'Input is flowing again.'}});
+ if(peerAnswering===true)worked.peer=true;
+ notifier.watch('peer',!!config?.peer&&worked.peer&&peerAnswering===false,{after:30000,
+  message:{title:'The other PC is not answering',body:'Stream Deck keys for the other PC and reactives will fail until it is back. Check that VTube Input Bridge is running there.'},
+  fixed:{title:'The other PC is back',body:'Stream Deck keys reach it again.'}});
+}
+
 // The window paints the theme's background before the page loads (no white flash) and has no menu bar.
 const windowBackground=()=>nativeTheme.shouldUseDarkColors?'#202020':'#f3f3f3';
+// For the setup checklist on Home.
+function setupState(){
+ const plugin=join(app.getPath('appData'),'Elgato','StreamDeck','Plugins','com.chayzx.vtubecontrol.sdPlugin');
+ return {paired:!!config?.peer,vtsAllowed:!!config?.vts?.token,streamDeckPlugin:config?.role==='pantry'&&existsSync(plugin),deckSeen:seenAt.deck>0,overlaySeen:seenAt.overlay>0,fugiUrl:!!config?.reactive?.url};
+}
+let toldAboutTray=false;
 function createWindow(){if(window&&!window.isDestroyed()){window.show();window.focus();return;}
  window=new BrowserWindow({width:1040,height:720,minWidth:760,minHeight:560,title:APP_NAME,icon:join(here,'..','ui','icon.ico'),show:false,backgroundColor:windowBackground(),autoHideMenuBar:true,
   webPreferences:{preload:join(here,'preload.cjs'),sandbox:true,nodeIntegration:false,contextIsolation:true}});
@@ -160,14 +313,16 @@ function createWindow(){if(window&&!window.isDestroyed()){window.show();window.f
  window.webContents.on('render-process-gone',(_,details)=>log.error('app',`The window's renderer stopped (${details.reason}); reopen the window from the tray`));
  window.on('unresponsive',()=>log.warn('app','The window is not responding'));
  window.loadFile(join(here,'..','ui','index.html'));
- window.on('close',e=>{if(!quitting){e.preventDefault();window.hide();}});
+ window.on('close',e=>{if(!quitting){e.preventDefault();window.hide();
+  // Once per run: closing the window keeps the app (and tracking) running in the tray.
+  if(!toldAboutTray){toldAboutTray=true;notifier.notify({title:`${APP_NAME} is still running`,body:'Tracking and Stream Deck keys keep working. Open or exit it from the tray icon.'});}}});
 }
 // A request from the window that fails is logged as well as shown there.
 function ipc(name,handler){ipcMain.handle(name,async(event,...args)=>{if(event.sender!==window?.webContents||event.senderFrame!==window.webContents.mainFrame)throw Error('Unauthorized UI');try{return await handler(...args);}catch(e){log.warn('app',`${name.replace(/^\w+:/,'')}: ${e?.message||e}`);throw e;}});}
 async function quit(){
  if(shutdownPromise)return shutdownPromise;
  quitting=true;
- shutdownPromise=(async()=>{log.info('app','Exiting');bind.cancel();rendering.cancel();renderer.stop();await host.stopAll();await closeServers();await log.flush();app.quit();})();
+ shutdownPromise=(async()=>{log.info('app','Exiting');bind.cancel();localBind.cancel();clearInterval(discoveryTimer);discovery?.stop();await stopPairing().catch(()=>{});rendering.cancel();renderer.stop();await host.stopAll();await closeServers();await log.flush();app.quit();})();
  return shutdownPromise;
 }
 
@@ -189,10 +344,10 @@ let trayKey='',trayLevel='',ownRole='pantry';
 function updateTray(){
  if(!tray)return;const t=host.status().tracking||{};const sender=t.role==='sender';
  const self=pcLabel({hostname,role:config?.role??ownRole,ip:config?.ownIp});
- const health=trayHealth({tracking:t,linkError,bindError:bind.error,config,services:last,self,peer:config?.peer?currentPeerName():''});
+ const health=trayHealth({tracking:t,linkError,bindError:bindError(),config,services:last,self,peer:config?.peer?currentPeerName():''});
  if(health.level!==trayLevel){trayLevel=health.level;tray.setImage(trayIcon(health.level));}
  // Rebuild only on change: replacing the menu while it is open would close it under the streamer's cursor.
-const key=JSON.stringify([self,health.line,health.tooltip,trackingSummary(),sender,t.running,!!linkError,!!config?.enabled,bind.error]);if(key===trayKey)return;trayKey=key;
+const key=JSON.stringify([self,health.line,health.tooltip,trackingSummary(),sender,t.running,!!linkError,!!config?.enabled,bindError()]);if(key===trayKey)return;trayKey=key;
  tray.setToolTip(health.tooltip);
  tray.setContextMenu(Menu.buildFromTemplate([
   {label:self,enabled:false},
@@ -201,7 +356,9 @@ const key=JSON.stringify([self,health.line,health.tooltip,trackingSummary(),send
   ...(sender?[{label:t.running?'Stop sending':'Start sending',click:()=>host.ui('tracking',t.running?'stop':'start',{}).catch(e=>dialog.showErrorBox('Tracking',e.message))}]:[]),
   {type:'separator'},
   {label:`Open ${APP_NAME}`,click:createWindow},
-  {label:'Pause remote controls',enabled:!linkError&&!!config?.enabled,click:()=>transactions.run(async()=>{config.enabled=false;await saveProtected(settingsFile,config);}).then(()=>{log.info('app','Remote controls paused from the tray');return bind.run();},()=>dialog.showErrorBox('Could not save','Exit the app to stop controls immediately.'))},
+  config?.enabled===false
+   ?{label:'Resume remote controls',enabled:!linkError,click:()=>transactions.run(async()=>{config.enabled=true;await saveProtected(settingsFile,config);}).then(()=>{log.info('app','Remote controls resumed from the tray');updateTray();},e=>dialog.showErrorBox('Could not save',e.message))}
+   :{label:'Pause remote controls',enabled:!linkError&&!!config,click:()=>transactions.run(async()=>{config.enabled=false;await saveProtected(settingsFile,config);}).then(()=>{log.info('app','Remote controls paused from the tray');updateTray();},()=>dialog.showErrorBox('Could not save','Exit the app to stop controls immediately.'))},
   {label:`Exit ${APP_NAME}`,click:()=>{quit();}}
  ]));
 }
@@ -212,7 +369,7 @@ if(!app.requestSingleInstanceLock()){app.quit();}else{
  app.whenReady().then(async()=>{
   const role=await resolveRole();ownRole=role;
   try{log.configure(JSON.parse((await readFile(loggingFile,'utf8')).replace(/^\uFEFF/,'')));}catch{}
-  log.info('app',`Starting ${APP_NAME} ${app.getVersion()} as the ${roleLabel(role)} on ${hostname||'this PC'}`);
+  log.info('app',`Starting ${APP_NAME} ${VERSION} as the ${roleLabel(role)} on ${hostname||'this PC'}`);
   // 1. Tracking first: it needs nothing else from this app.
   host.add(role==='pantry'
    ?new TrackingSender({exe:join(here,'..','tracking','VTubeInputBridge.exe'),settingsFile:join(dir,'tracking.json')})
@@ -221,19 +378,61 @@ if(!app.requestSingleInstanceLock()){app.quit();}else{
   // 2. The secure link and the features that use it.
   try{await startLink(role);linkError=null;updateSecrets();}catch(e){linkError=e?.message||String(e);log.error('app','The PC link could not start: '+linkError);}
   host.add(createControlsPlugin({getConfig:()=>config,linkError:()=>linkError,mediaExe:join(here,'..','media','SpotifyControl.exe'),
-   saveVtsToken:token=>transactions.run(async()=>{config.vts.token=token;updateSecrets();await saveProtected(settingsFile,config);log.info('vts','VTube Studio allowed VTube Control; its token was saved');})}));
+   saveVtsToken:token=>transactions.run(async()=>{config.vts.token=token;updateSecrets();await saveProtected(settingsFile,config);log.info('vts','VTube Studio allowed VTube Input Bridge; its token was saved');})}));
   host.add(createReactivesPlugin({getConfig:()=>config,linkError:()=>linkError,renderer,frames,
    setVisible:(visible,deadline)=>transactions.runWithDeadline(deadline,async()=>{config.reactive.visible=visible;await saveProtected(settingsFile,config);return visible;}),
    clearPeerFrame:()=>requestPeer(config.peer,'DELETE','/frame'),stopped:()=>rendering.cancel()}));
-  await host.start('controls');await host.start('reactives');if(!linkError)await bind.run();
+  await host.start('controls');await host.start('reactives');
+  if(!linkError){
+   await localBind.run();await bind.run();followPeer();
+   discovery=new Discovery({me:()=>config&&{role:config.role,name:hostname,version:VERSION,pin:ownPin,pairing:!!pairing?.open},onError:e=>log.warn('peer',e)});
+   // Discovery is a convenience: if UDP 5059 is taken it is retried, and everything else works without it.
+   await discovery.start();discoveryTimer=setInterval(()=>{if(discovery.error)void discovery.start();},30000);
+   if(config.updates.auto){setTimeout(()=>void checkUpdates(),60000);setInterval(()=>{if(config?.updates?.auto)void checkUpdates();},6*3600000);}
+  }
 
-  ipc('control:get',()=>({role,hostname,peerName:config?.peer?currentPeerName():'',version:app.getVersion(),linkError,bindError:bind.error,plugins:host.status(),status:status(),
-   config:config&&{...config,peer:config.peer?{host:config.peer.host,port:config.peer.port,pin:config.peer.pin,name:config.peer.name}:null,obs:{...config.obs,password:config.obs.password?'••••••••':''},vts:{...config.vts,token:undefined}},
+  ipc('control:get',()=>({role,hostname,peerName:config?.peer?currentPeerName():'',version:VERSION,linkError,bindError:bindError(),plugins:host.status(),status:status(),
+   setup:setupState(),update:updateView(),
+   config:config&&{...config,ownIp:ownIp(),peer:config.peer?{host:config.peer.host,port:config.peer.port,pin:config.peer.pin,name:config.peer.name}:null,obs:{...config.obs,password:config.obs.password?'••••••••':''},vts:{...config.vts,token:undefined}},
    overlayUrl:identity?`http://127.0.0.1:5058/overlay/${identity.overlayToken}`:''}));
   // The role is fixed at install, and show/hide belongs to the Stream Deck; a save changes neither.
-  ipc('control:save',value=>{requireLink();return transactions.run(async()=>{const next={...value,role:config.role,peer:config.peer,obs:{...value.obs,password:value.obs.password==='••••••••'?config.obs.password:value.obs.password},vts:{...value.vts,token:config.vts.token},reactive:{...value.reactive,visible:config.reactive.visible}};validateSave(next);config=next;updateSecrets();await saveProtected(settingsFile,config);log.info('app','Settings saved');}).then(async()=>{await bind.run();return status();});});
-  ipc('control:export',async()=>{requireLink();const chosen=await dialog.showSaveDialog(window,{title:'Export pairing file — contains a connection credential',defaultPath:`${config.role==='canada'?'streaming':'gaming'}-pc-pairing.json`});if(chosen.canceled)return;const pin=createHash('sha256').update(new X509Certificate(identity.cert.cert).raw).digest('hex');await writeFile(chosen.filePath,JSON.stringify({host:config.ownIp,port:5056,pin,token:identity.networkToken,name:hostname},null,2),{mode:0o600});log.info('app','Pairing file exported');return 'Exported. Transfer securely, import on the other PC, then delete the transfer copy.';});
-  ipc('control:import',async()=>{requireLink();const chosen=await dialog.showOpenDialog(window,{title:'Import the OTHER PC’s pairing file',properties:['openFile'],filters:[{name:'Pairing',extensions:['json']}]});if(chosen.canceled)return;const peer=parsePairingFile(await readFile(chosen.filePaths[0]));return transactions.run(async()=>{const first=!config.peer;validateConfig({...config,peer});config.peer=peer;peerName='';if(first)config.enabled=true;updateSecrets();await saveProtected(settingsFile,config);log.info('app',`Paired with ${pcLabel({hostname:peer.name,role:config.role==='canada'?'pantry':'canada',ip:peer.host})}`);return first;}).then(async first=>{await bind.run();return (first?'Paired. Remote controls are on.':'Paired')+(bind.error?' '+bind.error:'');});});
+  ipc('control:save',value=>{requireLink();return transactions.run(async()=>{const next={...value,role:config.role,peer:config.peer,ownIp:'',obs:{...value.obs,password:value.obs.password==='••••••••'?config.obs.password:value.obs.password},vts:{...value.vts,token:config.vts.token},reactive:{...value.reactive,visible:config.reactive.visible}};validateSave(next);config=next;updateSecrets();await saveProtected(settingsFile,config);log.info('app','Settings saved');}).then(async()=>{await bind.run();return status();});});
+  ipc('control:export',async()=>{requireLink();const chosen=await dialog.showSaveDialog(window,{title:'Export pairing file — contains a connection credential',defaultPath:`${config.role==='canada'?'streaming':'gaming'}-pc-pairing.json`});if(chosen.canceled)return;const pin=createHash('sha256').update(new X509Certificate(identity.cert.cert).raw).digest('hex');await writeFile(chosen.filePath,JSON.stringify({host:ownIp(),port:5056,pin,token:identity.networkToken,name:hostname},null,2),{mode:0o600});log.info('app','Pairing file exported');return 'Exported. Transfer securely, import on the other PC, then delete the transfer copy.';});
+  ipc('control:import',async()=>{requireLink();const chosen=await dialog.showOpenDialog(window,{title:'Import the OTHER PC’s pairing file',properties:['openFile'],filters:[{name:'Pairing',extensions:['json']}]});if(chosen.canceled)return;const peer=parsePairingFile(await readFile(chosen.filePaths[0]));return transactions.run(async()=>{const first=!config.peer;validateConfig({...config,peer});config.peer=peer;peerName='';if(first)config.enabled=true;updateSecrets();await saveProtected(settingsFile,config);log.info('app',`Paired with ${pcLabel({hostname:peer.name,role:config.role==='canada'?'pantry':'canada',ip:peer.host})}`);return first;}).then(async first=>{await bind.run();followPeer();return (first?'Paired. Remote controls are on.':'Paired')+(bindError()?' '+bindError():'');});});
+  // Pairing with a code. pair:start shows a code on this PC; pair:join types the other PC's code here.
+  ipc('pair:start',async()=>{
+   requireLink();await stopPairing();
+   const session=new PairingHost({role:config.role,details:myDetails,accept:async(peer,address)=>{await savePairing({...peer,host:address});setTimeout(()=>{if(pairing===session)void stopPairing();},3000);}});
+   const server=createPairingServer(()=>pairing===session&&session.open?session:null);
+   try{await listen(server,PAIRING_PORT,'0.0.0.0');}catch(e){throw new Error(`Could not wait for the other PC on port ${PAIRING_PORT} (${e.code||e.message}). Another program may be using it; restart this PC and try again.`);}
+   pairing=session;pairingServer=server;pairingTimer=setTimeout(()=>void stopPairing(),session.expiresAt-Date.now()+1000);
+   log.info('app','Waiting for the other PC to enter the pairing code');
+   return {code:showCode(session.code),expiresAt:session.expiresAt};
+  });
+  ipc('pair:status',()=>pairing?{state:pairing.open?'waiting':pairing.state,message:pairing.message,peer:pairing.peer?peerLabel(pairing.peer):'',expiresAt:pairing.expiresAt}:{state:'idle'});
+  ipc('pair:cancel',async()=>{await stopPairing();pairing=null;return true;});
+  ipc('pair:find',async()=>{requireLink();if(!discovery)throw new Error('Pairing is unavailable.');return (await discovery.find({want:'pairing',role:config.role})).filter(f=>f.role===opposite()).map(f=>({address:f.address,name:f.name,version:f.version,label:pcLabel({hostname:f.name,role:f.role,ip:f.address})}));});
+  ipc('pair:join',async({code,address}={})=>{
+   requireLink();const digits=readCode(code);
+   if(!address){
+    const found=(await discovery.find({want:'pairing',role:config.role})).filter(f=>f.role===opposite());
+    if(!found.length)throw new Error(`No ${roleLabel(opposite())} is waiting for a code. On the ${roleLabel(opposite())}, open PC link and choose Show a pairing code, then try again. If it is showing one, both PCs must be on the same home network, with the network set to Private in Windows.`);
+    if(found.length>1&&new Set(found.map(f=>f.name)).size>1)return {choose:found.map(f=>({address:f.address,label:pcLabel({hostname:f.name,role:f.role,ip:f.address})}))};
+    address=(found.find(f=>onSubnet(f.address))||found[0]).address;
+   }
+   const peer=await joinPairing({address,code:digits,role:config.role,details:myDetails()});
+   await savePairing(peer);return {message:`Paired with ${peerLabel(peer)}. Remote controls are on.`};
+  });
+  // Updates.
+  ipc('update:get',()=>updateView());
+  ipc('update:check',()=>checkUpdates(true));
+  ipc('update:choose-file',async()=>{
+   const chosen=await dialog.showOpenDialog(window,{title:`Choose the new ${updates.INSTALLER}`,properties:['openFile'],filters:[{name:'VTube Input Bridge installer',extensions:['cmd']}]});if(chosen.canceled)return updateView();
+   const path=chosen.filePaths[0];const version=await updates.installerVersion(path);
+   if(updates.compareVersions(version,VERSION)<0)throw new Error(`That installer is version ${version}, older than the ${VERSION} this PC runs.`);
+   update.ready={path,version};update.error='';log.info('app',`Installer for version ${version} chosen`);return updateView();
+  });
+  ipc('update:install',async({both=true}={})=>({message:await installUpdate({both}),update:updateView()}));
   ipc('control:login',()=>{requireLink();if(config.role!=='pantry')throw Error('Sign in to Fugi on the Gaming PC, where reactives are rendered');openFugiLogin();return 'Fugi sign-in window opened';});
   ipc('control:reactive-start',async()=>{requireLink();return dispatcher.execute({id:randomUUID(),expiresAt:Date.now()+10000,target:'local',action:'reactive.start',args:{}});});
   ipc('control:reactive-stop',async()=>{requireLink();rendering.cancel();return dispatcher.execute({id:randomUUID(),expiresAt:Date.now()+10000,target:'local',action:'reactive.stop',args:{}});});
@@ -250,8 +449,12 @@ if(!app.requestSingleInstanceLock()){app.quit();}else{
   ipc('control:open-log-folder',async()=>{await mkdir(logDir,{recursive:true});await log.flush();const error=await shell.openPath(logDir);if(error)throw new Error(error);return logDir;});
   ipc('tracking:call',async(name,args)=>{if(name!=='status')log.info('tracking',`From the window: ${name}`+(name==='start'&&args?.destination?` to ${args.destination}`:''));const result=await host.ui('tracking',name,args);updateTray();return result;});
 
-  tray=new Tray(trayIcon('warn'));trayLevel='warn';tray.on('double-click',createWindow);
-  updateTray();setInterval(updateTray,2000);setInterval(()=>void refreshPeerName(),300000);
+  tray=new Tray(trayIcon('warn'));trayLevel='warn';tray.on('double-click',createWindow);tray.on('balloon-click',createWindow);
+  // The installer leaves a note when it updated this PC (scripts/Control-OneClick.ps1).
+  void updates.lastUpdate(join(localData,'last-update.json')).then(result=>{if(!result)return;
+   if(result.ok){log.info('app',`Updated to ${result.version||VERSION}`);notifier.notify({title:'Updated',body:`VTube Input Bridge ${VERSION} is running.`});}
+   else{log.error('app',`The update to ${result.version} failed: ${result.message}`);notifier.notify({title:'Update failed',body:result.message||'The installer reported a problem. Open the app for details.'});}});
+  updateTray();setInterval(updateTray,2000);setInterval(()=>void refreshPeerName(),15000);
   nativeTheme.on('updated',()=>{if(window&&!window.isDestroyed())window.setBackgroundColor(windowBackground());});
   // Sign-in launches pass --background so the app starts in the tray.
   if(!process.argv.includes('--background'))createWindow();

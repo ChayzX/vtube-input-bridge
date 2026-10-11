@@ -82,6 +82,11 @@
         <button type="button" class="btn" id="heroAction" hidden></button>
       </div>
 
+      <div class="card setup" id="setup" hidden>
+        <header><div><h2 id="setupTitle">Finish setting up</h2><p class="help" id="setupText">A few one-time steps. Each one ticks itself off when it works.</p></div><button type="button" class="btn subtle" id="setupHide">Hide</button></header>
+        <ol class="steps" id="setupSteps"></ol>
+      </div>
+
       <h2 class="section">Connections</h2>
       <div class="grid">
         <article class="card conn" id="card-tracking">
@@ -91,7 +96,7 @@
           <footer><button type="button" class="btn" id="tracking-action" hidden></button><button type="button" class="btn subtle" id="tracking-howto" aria-expanded="false" aria-controls="tracking-fix" hidden>How to fix</button><button type="button" class="btn subtle" data-go="tracking" aria-label="Tracking settings">Settings</button></footer>
         </article>
         <article class="card conn" id="card-link">
-          <header><span class="ic"><svg class="i" aria-hidden="true"><use href="#i-link"/></svg></span><div><h3>PC link</h3><div class="where">Encrypted · TCP 5056</div></div><span class="badge" id="link-badge"></span></header>
+          <header><span class="ic"><svg class="i" aria-hidden="true"><use href="#i-link"/></svg></span><div><h3>PC link</h3><div class="where">Encrypted · found automatically</div></div><span class="badge" id="link-badge"></span></header>
           <p class="detail" id="link-detail"></p>
           <p class="fix" id="link-fix" hidden></p>
           <footer><button type="button" class="btn" id="link-test" hidden>Retry</button><button type="button" class="btn subtle" id="link-howto" aria-expanded="false" aria-controls="link-fix" hidden>How to fix</button><button type="button" class="btn subtle" data-go="link" id="link-go">Manage pairing</button></footer>
@@ -194,7 +199,7 @@
       <div class="group">
         <div class="row">
           <span class="ic"><svg class="i" aria-hidden="true"><use href="#i-deck"/></svg></span>
-          <div><div class="label">Adding keys</div><div class="help" id="deckHelp">In the Stream Deck app, drag <b>VTube Control › Bridge command</b> onto a key, then choose the PC and the action. Scene and hotkey lists fill in by themselves when you open a key's settings.</div></div>
+          <div><div class="label">Adding keys</div><div class="help" id="deckHelp">In the Stream Deck app, open the <b>VTube Input Bridge</b> category and drag the action you want (OBS scene, VTube Studio hotkey, Spotify…) onto a key, then choose the PC. Scene and hotkey lists fill in by themselves when you open a key's settings.</div></div>
         </div>
       </div>
 
@@ -282,6 +287,28 @@
           <div><label class="label" for="theme">Theme</label><div class="help">Follows Windows unless you pick one here.</div></div>
           <select class="input" id="theme"><option value="system">Use Windows setting</option><option value="light">Light</option><option value="dark">Dark</option></select>
         </div>
+        <div class="row">
+          <span class="ic"><svg class="i" aria-hidden="true"><use href="#i-info"/></svg></span>
+          <div><div class="label" id="notifyLabel">Notifications</div><div class="help" id="notifyHelp">Tell me when tracking or the other PC drops out, and when an update is ready, even with this window closed.</div></div>
+          <label class="toggle"><span class="state">Off</span><input type="checkbox" role="switch" id="notifyEnabled" form="settings" aria-labelledby="notifyLabel" aria-describedby="notifyHelp"></label>
+        </div>
+      </div>
+
+      <h2 class="section">Updates</h2>
+      <div class="group">
+        <div class="row">
+          <span class="ic"><svg class="i" aria-hidden="true"><use href="#i-download"/></svg></span>
+          <div><div class="label" id="updateTitle">Version</div><div class="help" id="updateText">Both PCs must run the same version. Updating here sends the update to the other PC too.</div></div>
+          <div class="trail"><button type="button" class="btn" id="updateCheck">Check for updates</button><button type="button" class="btn" id="updateFile">Install from file…</button><button type="button" class="btn primary" id="updateInstall" hidden>Update both PCs</button></div>
+        </div>
+        <div class="row sub">
+          <div><div class="label" id="updatesAutoLabel">Check for updates automatically</div><div class="help">Looks for a new published version every few hours.</div></div>
+          <label class="toggle"><span class="state">Off</span><input type="checkbox" role="switch" id="updatesAuto" form="settings" aria-labelledby="updatesAutoLabel"></label>
+        </div>
+        <div class="row sub">
+          <div><div class="label" id="updatesPeerLabel">Accept updates from the <span class="other-pc">other PC</span></div><div class="help">When the <span class="other-pc">other PC</span> updates, it installs the same version here, so the two never get out of step.</div></div>
+          <label class="toggle"><span class="state">Off</span><input type="checkbox" role="switch" id="updatesFromPeer" form="settings" aria-labelledby="updatesPeerLabel"></label>
+        </div>
       </div>
 
       <h2 class="section">This PC</h2>
@@ -330,26 +357,36 @@
         <div class="infobar err link-problem" role="alert" hidden><svg class="i" aria-hidden="true"><use href="#i-error"/></svg><div class="link-problem-text"></div></div>
         <div class="infobar" id="linkError" role="alert" hidden><svg class="i" aria-hidden="true"><use href="#i-warn"/></svg><div id="linkErrorText"></div></div>
 
-        <div class="group">
-          <div class="row">
-            <span class="ic"><svg class="i" aria-hidden="true"><use href="#i-pc"/></svg></span>
-            <div><label class="label" for="ownIp">This PC's address</label><div class="help">This PC's local IPv4 address on your home network. The other PC connects to it.</div></div>
-            <input class="input mono ip" id="ownIp" required inputmode="decimal" autocomplete="off" spellcheck="false">
-          </div>
-        </div>
-
         <h2 class="section">Pairing</h2>
         <div class="group">
           <div class="row">
             <span class="ic"><svg class="i" aria-hidden="true"><use href="#i-link"/></svg></span>
-            <div><div class="label" id="peer">Not paired</div><div class="help" id="peerHelp">Export this PC's pairing file, copy it to the other PC and import it there. Then do the same the other way round, and delete the copies.</div></div>
+            <div><div class="label" id="peer">Not paired</div><div class="help" id="peerHelp">Pair once with a 6-digit code. Both PCs then find each other by themselves, even when the router gives one a new address.</div></div>
             <span class="badge" id="peerBadge"></span>
           </div>
-          <div class="row sub">
-            <div><div class="label">Pairing files</div><div class="help">A pairing file holds a connection key. Move it with a USB stick or a private message, never a public link.</div></div>
-            <div class="trail"><button type="button" class="btn" id="export"><svg class="i" aria-hidden="true"><use href="#i-upload"/></svg>Export pairing file</button><button type="button" class="btn" id="import"><svg class="i" aria-hidden="true"><use href="#i-download"/></svg>Import pairing file</button></div>
+          <div class="row sub" id="pairStartRow">
+            <div><div class="label" id="pairStartLabel">Pair with a code</div><div class="help" id="pairStartHelp">Show a code on one PC and type it on the other. Both PCs must be on the same home network.</div></div>
+            <div class="trail"><button type="button" class="btn" id="pairShow"><svg class="i" aria-hidden="true"><use href="#i-key"/></svg>Show a pairing code</button><button type="button" class="btn" id="pairEnter"><svg class="i" aria-hidden="true"><use href="#i-link"/></svg>Enter a code</button></div>
+          </div>
+          <div class="row sub pair-panel" id="pairShowPanel" hidden>
+            <div><div class="label">Type this code on the <span class="other-pc">other PC</span></div><div class="pair-code mono" id="pairCode" aria-live="polite">––– –––</div><div class="help" id="pairShowHelp">On the <span class="other-pc">other PC</span>, open PC link and choose <b>Enter a code</b>.</div></div>
+            <div class="trail"><button type="button" class="btn" id="pairShowCancel">Cancel</button></div>
+          </div>
+          <div class="row sub pair-panel" id="pairEnterPanel" hidden>
+            <div><label class="label" for="pairInput">Code shown on the <span class="other-pc">other PC</span></label><div class="help" id="pairEnterHelp">On the <span class="other-pc">other PC</span>, open PC link and choose <b>Show a pairing code</b>.</div>
+              <div class="pair-choose" id="pairChoose" hidden></div></div>
+            <div class="trail"><input class="input mono pair-input" id="pairInput" inputmode="numeric" autocomplete="off" spellcheck="false" maxlength="7" placeholder="123 456"><button type="button" class="btn primary" id="pairJoin">Pair</button><button type="button" class="btn subtle" id="pairEnterCancel">Cancel</button></div>
           </div>
         </div>
+        <details class="more">
+          <summary>Pair with files instead</summary>
+          <div class="group">
+            <div class="row sub">
+              <div><div class="label">Pairing files</div><div class="help">For PCs that cannot see each other's broadcasts (some mesh Wi-Fi and guest networks). Export on each PC and import on the other. A pairing file holds a connection key: move it with a USB stick or a private message, never a public link.</div></div>
+              <div class="trail"><button type="button" class="btn" id="export"><svg class="i" aria-hidden="true"><use href="#i-upload"/></svg>Export pairing file</button><button type="button" class="btn" id="import"><svg class="i" aria-hidden="true"><use href="#i-download"/></svg>Import pairing file</button></div>
+            </div>
+          </div>
+        </details>
 
         <h2 class="section">Remote controls</h2>
         <div class="group">
@@ -385,7 +422,7 @@
         <div class="group app-group" id="group-vts">
           <div class="row">
             <span class="ic"><svg class="i" aria-hidden="true"><use href="#i-face"/></svg></span>
-            <div><div class="label" id="vtsLabel">VTube Studio</div><div class="help">Trigger hotkeys and Item Scenes. VTube Studio asks once to allow <b>VTube Control</b>.</div></div>
+            <div><div class="label" id="vtsLabel">VTube Studio</div><div class="help">Trigger hotkeys and Item Scenes. VTube Studio asks once to allow <b>VTube Input Bridge</b>.</div></div>
             <div class="trail"><span class="badge" id="vts-badge2" hidden></span><label class="toggle"><span class="state">Off</span><input type="checkbox" role="switch" id="vtsEnabled" aria-labelledby="vtsLabel"></label></div>
           </div>
           <div class="row sub" data-needs="vtsEnabled">

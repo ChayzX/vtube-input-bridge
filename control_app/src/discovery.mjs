@@ -30,6 +30,9 @@ export function addressToward(peer,interfaces){
  return (peer&&list.find(e=>sameSubnet(e.address,peer,e.netmask))||list[0])?.address||'';
 }
 
+// True when one of this PC's adapters is on that address's subnet.
+export const onSubnet=(address,interfaces)=>localAddresses(interfaces).some(e=>sameSubnet(e.address,address,e.netmask));
+
 export class Discovery {
  // `me()` describes this PC: {role, name, version, pin, pairing (true while showing a code)}.
  constructor({me,port=PAIRING_PORT,createSocket=dgram.createSocket,interfaces=()=>networkInterfaces(),onError=()=>{},allow=privateIp}){
