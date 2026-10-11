@@ -2,10 +2,10 @@
 .SYNOPSIS
   Pull the newest VTube Input Bridge release and install it on this PC.
 .EXAMPLE
-  # Gaming PC (Pantry), run as the signed-in gaming user:
+  # Gaming PC, run as the signed-in gaming user:
   .\Update-VTubeBridge.ps1 -Role Gaming
 .EXAMPLE
-  # Stream PC (Canada), run in an administrator PowerShell:
+  # Streaming PC, run in an administrator PowerShell:
   .\Update-VTubeBridge.ps1 -Role Stream -GamingPC 10.0.0.112
 #>
 param(

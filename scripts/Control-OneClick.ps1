@@ -64,7 +64,7 @@ $work = Join-Path ([IO.Path]::GetTempPath()) ('vtubebridge-' + [Guid]::NewGuid()
 try {
     if ($Role -ne 'pantry' -and $Role -ne 'canada') { throw 'This installer was not generated correctly (unknown PC role).' }
     if ($ZipSha256 -notmatch '^[0-9a-f]{64}$' -or ($PluginLength -gt 0 -and $PluginSha256 -notmatch '^[0-9a-f]{64}$')) { throw 'This installer was not generated correctly (missing checksum).' }
-    $pcName = if ($Role -eq 'pantry') { 'gaming PC' } else { 'stream PC' }
+    $pcName = if ($Role -eq 'pantry') { 'Gaming PC' } else { 'Streaming PC' }
     Say ('VTube Input Bridge ' + $Version + ' for the ' + $pcName) 'Cyan'
     Say 'One app for tracking, Stream Deck controls and reactives. It replaces the separate tracking app.'
 
@@ -123,12 +123,12 @@ try {
             $relayTask = Get-ScheduledTask -TaskName 'VTube Input Relay' -ErrorAction SilentlyContinue
             $relayConfig = Join-Path ([Environment]::GetFolderPath('ApplicationData')) 'VTubeControl\relay-config.json'
             if ($relayTask) {
-                Say 'One-time Stream PC migration: Windows will ask permission to replace only the old SYSTEM task.' 'Yellow'
+                Say 'One-time Streaming PC migration: Windows will ask permission to replace only the old SYSTEM task.' 'Yellow'
                 $migration = Join-Path $extract 'Migrate-StreamPCRelay.ps1'
                 $appSettings = Join-Path ([Environment]::GetFolderPath('ApplicationData')) 'VTubeControl'
                 $arguments = '-NoProfile -ExecutionPolicy Bypass -File "' + $migration + '" -UserAppDataPath "' + $appSettings + '" -UserLocalAppDataPath "' + $installRoot + '"'
                 $process = Start-Process -FilePath 'powershell.exe' -Verb RunAs -Wait -PassThru -ArgumentList $arguments
-                if ($process.ExitCode -ne 0) { throw 'Stream PC relay migration did not complete. The old task must remain stopped/unchanged as reported; do not launch this app yet.' }
+                if ($process.ExitCode -ne 0) { throw 'Streaming PC relay migration did not complete. The old task must remain stopped/unchanged as reported; do not launch this app yet.' }
             } elseif (-not (Test-Path -LiteralPath $relayConfig)) {
                 throw 'The old VTube Input Relay task and migrated source config are both missing. Nothing can safely start tracking; ask for help before continuing.'
             }
@@ -225,7 +225,7 @@ try {
     $nl = [Environment]::NewLine
     Say ''
     Say ('VTube Input Bridge ' + $Version + ' is installed.') 'Green'
-    Say 'It starts in the tray at sign-in. Stream Deck controls and reactives switch on once the two PCs are paired.'
+    Say 'It starts in the tray at sign-in. Remote controls and reactives switch on once the two PCs are paired.'
     Show-Result ('VTube Input Bridge ' + $Version + ' is installed.' + $nl + $nl + 'Click OK to open it. From now on it starts in the system tray when you sign in.') $false
 
     # 5. Open the app only after the dialog, so nothing competes for focus. On the gaming PC it starts sending as the

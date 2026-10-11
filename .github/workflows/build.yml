@@ -77,7 +77,7 @@ jobs:
           if ! gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release create "$tag" --repo "$GITHUB_REPOSITORY" --draft --prerelease --target "$GITHUB_SHA" \
               --title "VTube Input Bridge $version" \
-              --notes 'Draft installers for Pantry (gaming PC) and Canada (stream PC). Not published.'
+              --notes 'Draft installers for the Gaming PC and the Streaming PC. Not published.'
           fi
           gh release upload "$tag" --repo "$GITHUB_REPOSITORY" --clobber \
             build/Install-VTubeInputBridge-GamingPC.cmd \

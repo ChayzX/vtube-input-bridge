@@ -29,10 +29,10 @@ async function resolveRole(){
 const host=new PluginHost();
 const status=()=>({enabled:!!config?.enabled,role:config?.role,peer:config?.peer?.host||'Not paired',services:last,reactive:renderer.state,frameFresh:!!frames.get(),linkError,bindError:bind.error,plugins:host.status()});
 async function run(c){
- if(!config?.enabled)throw userError('Stream Deck controls are turned off on this PC. Tick "Enable Stream Deck controls and reactives" in settings and save.','disabled');
- if(c.target==='peer'){if(!config.peer)throw userError('This PC is not paired with the other PC yet. Export and import the pairing files first.','not_paired');return forwardCommand(config.peer,c);}
+ if(!config?.enabled)throw userError('Remote controls are paused on this PC. Turn on "Remote controls" under PC link and save.','disabled');
+ if(c.target==='peer'){if(!config.peer)throw userError('This PC is not paired with the other PC yet. Pair them under PC link first.','not_paired');return forwardCommand(config.peer,c);}
  if(c.action==='bridge.status')return status();
- const deadline={expiresAt:c.expiresAt,assertActive:()=>{if(!config.enabled)throw userError("Stream Deck controls were turned off while this action was waiting.","disabled");}};checkDeadline(deadline);
+ const deadline={expiresAt:c.expiresAt,assertActive:()=>{if(!config.enabled)throw userError("Remote controls were paused while this action was waiting.","disabled");}};checkDeadline(deadline);
  const service=c.action.split('.')[0];
  try{const result=await host.action(c.action,c.args,deadline);last[service]={ok:true,at:Date.now()};return result;}
  catch(e){last[service]={ok:false,at:Date.now()};throw e;}
@@ -48,7 +48,7 @@ async function startServers(){
   {server:createApi({token:identity.networkToken,tls:identity.cert,source:config.peer.host,dispatcher,status,frames}),port:5056,host:config.ownIp},
   {server:createOverlay(overlayFrames,identity.overlayToken),port:5058,host:'127.0.0.1'}];
  try{for(const {server,port,host:address} of list){await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(port,address,resolve);});servers.push(server);}}
- catch{await closeServers();throw new Error(`Could not open ${config.ownIp} or ports 5056–5058 on this PC. Retrying; if this lasts, check “This PC’s LAN IPv4” and that no other program uses those ports. Tracking is unaffected.`);}
+ catch{await closeServers();throw new Error(`Could not open ${config.ownIp} or ports 5056–5058 on this PC. Retrying; if this lasts, check “This PC’s address” under PC link and that no other program uses those ports. Tracking is unaffected.`);}
 }
 // At sign-in the network may not have given this PC its address yet, so a failed bind is retried with backoff; it never
 // turns controls off. Each later restart of the servers (save, pairing, tray) goes through here too.
@@ -71,7 +71,7 @@ function autoStartRenderer(){
  if(linkError||config?.role!=='pantry'||!config.enabled||!config.peer||!config.reactive.enabled||!config.reactive.url)return rendering.cancel();
  void rendering.run();
 }
-const requireLink=()=>{if(linkError)throw new Error('Stream Deck controls and reactives are unavailable: '+linkError);};
+const requireLink=()=>{if(linkError)throw new Error('Remote controls and reactives are unavailable: '+linkError);};
 
 function createWindow(){if(window&&!window.isDestroyed()){window.show();return;}
  window=new BrowserWindow({width:760,height:900,title:APP_NAME,webPreferences:{preload:join(here,'preload.cjs'),sandbox:true,nodeIntegration:false,contextIsolation:true}});
@@ -132,9 +132,9 @@ if(!app.requestSingleInstanceLock()){app.quit();}else{
    overlayUrl:identity?`http://127.0.0.1:5058/overlay/${identity.overlayToken}`:''}));
   // The role is fixed at install, and show/hide belongs to the Stream Deck; a save changes neither.
   ipc('control:save',value=>{requireLink();return transactions.run(async()=>{const next={...value,role:config.role,peer:config.peer,obs:{...value.obs,password:value.obs.password==='••••••••'?config.obs.password:value.obs.password},vts:{...value.vts,token:config.vts.token},reactive:{...value.reactive,visible:config.reactive.visible}};validateConfig(next);config=next;await saveProtected(settingsFile,config);}).then(async()=>{await bind.run();return status();});});
-  ipc('control:export',async()=>{requireLink();const chosen=await dialog.showSaveDialog(window,{title:'Export pairing file — contains a connection credential',defaultPath:`${config.role}-pairing.json`});if(chosen.canceled)return;const pin=createHash('sha256').update(new X509Certificate(identity.cert.cert).raw).digest('hex');await writeFile(chosen.filePath,JSON.stringify({host:config.ownIp,port:5056,pin,token:identity.networkToken},null,2),{mode:0o600});return 'Exported. Transfer securely, import on the other PC, then delete the transfer copy.';});
-  ipc('control:import',async()=>{requireLink();const chosen=await dialog.showOpenDialog(window,{title:'Import the OTHER PC’s pairing file',properties:['openFile'],filters:[{name:'Pairing',extensions:['json']}]});if(chosen.canceled)return;const bytes=await readFile(chosen.filePaths[0]);if(bytes.length>8192)throw Error('Pairing file too large');const peer=validatePair(JSON.parse(bytes));return transactions.run(async()=>{const first=!config.peer;validateConfig({...config,peer});config.peer=peer;if(first)config.enabled=true;await saveProtected(settingsFile,config);return first;}).then(async first=>{await bind.run();return (first?'Paired. Stream Deck controls are on.':'Paired')+(bind.error?' '+bind.error:'');});});
-  ipc('control:login',()=>{requireLink();if(config.role!=='pantry')throw Error('Log in on Pantry');openFugiLogin();return 'Fugi login window opened';});
+  ipc('control:export',async()=>{requireLink();const chosen=await dialog.showSaveDialog(window,{title:'Export pairing file — contains a connection credential',defaultPath:`${config.role==='canada'?'streaming':'gaming'}-pc-pairing.json`});if(chosen.canceled)return;const pin=createHash('sha256').update(new X509Certificate(identity.cert.cert).raw).digest('hex');await writeFile(chosen.filePath,JSON.stringify({host:config.ownIp,port:5056,pin,token:identity.networkToken},null,2),{mode:0o600});return 'Exported. Transfer securely, import on the other PC, then delete the transfer copy.';});
+  ipc('control:import',async()=>{requireLink();const chosen=await dialog.showOpenDialog(window,{title:'Import the OTHER PC’s pairing file',properties:['openFile'],filters:[{name:'Pairing',extensions:['json']}]});if(chosen.canceled)return;const bytes=await readFile(chosen.filePaths[0]);if(bytes.length>8192)throw Error('Pairing file too large');const peer=validatePair(JSON.parse(bytes));return transactions.run(async()=>{const first=!config.peer;validateConfig({...config,peer});config.peer=peer;if(first)config.enabled=true;await saveProtected(settingsFile,config);return first;}).then(async first=>{await bind.run();return (first?'Paired. Remote controls are on.':'Paired')+(bind.error?' '+bind.error:'');});});
+  ipc('control:login',()=>{requireLink();if(config.role!=='pantry')throw Error('Sign in to Fugi on the Gaming PC, where reactives are rendered');openFugiLogin();return 'Fugi sign-in window opened';});
   ipc('control:reactive-start',async()=>{requireLink();return dispatcher.execute({id:randomUUID(),expiresAt:Date.now()+10000,target:'local',action:'reactive.start',args:{}});});
   ipc('control:reactive-stop',async()=>{requireLink();rendering.cancel();return dispatcher.execute({id:randomUUID(),expiresAt:Date.now()+10000,target:'local',action:'reactive.stop',args:{}});});
   ipc('control:command',c=>{requireLink();return dispatcher.execute({id:randomUUID(),expiresAt:Date.now()+10000,target:c.target,action:c.action,args:c.args||{}});});

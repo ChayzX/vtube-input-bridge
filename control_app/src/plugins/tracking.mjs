@@ -82,7 +82,7 @@ export class TrackingSender {
  }
  status(){
   const h=this.helper||{};
-  return {role:'sender',state:this.state,connectionState:h.running?(h.receiverConnected?'Connected':'Waiting for Stream PC'):this.state,running:!!h.running,receiverConnected:!!h.receiverConnected,lastAckSequence:h.lastAckSequence??-1,lastAckUnixMs:h.lastAckUnixMs??0,packets:h.packets??0,destination:h.destination??'',
+  return {role:'sender',state:this.state,connectionState:h.running?(h.receiverConnected?'Connected':'Waiting for the Streaming PC'):this.state,running:!!h.running,receiverConnected:!!h.receiverConnected,lastAckSequence:h.lastAckSequence??-1,lastAckUnixMs:h.lastAckUnixMs??0,packets:h.packets??0,destination:h.destination??'',
    gameMode:!!h.gameMode,sensitivity:h.sensitivity??1,rawEvents:h.rawEvents??0,rawError:h.rawError??'',
    legacy:!!h.legacy,error:this.lastError||h.error||'',startSendingOnLaunch:!!this.settings.startSendingOnLaunch};
  }
@@ -91,7 +91,7 @@ export class TrackingSender {
 const stripBom=text=>String(text).replace(/^\uFEFF/,'');
 
 // The address goes onto the helper's command line, so accept nothing but a bare IPv4 address.
-function ipv4(value){const text=String(value??'').trim();if(isIP(text)!==4)throw new Error("Enter the stream PC's IPv4 address.");return text;}
+function ipv4(value){const text=String(value??'').trim();if(isIP(text)!==4)throw new Error("Enter the Streaming PC's IPv4 address.");return text;}
 
 // Stream PC: this app owns the relay child for the signed-in user. The legacy SYSTEM task
 // must be migrated before launch; keeping both would contend for UDP port 5055 and VTS authorization.
@@ -104,8 +104,8 @@ export class TrackingReceiver {
   let config;
   // Windows PowerShell writes UTF-8 with a byte-order mark, which JSON.parse rejects.
   try{config=JSON.parse(stripBom(await this.readFile(this.configFile,'utf8')));this.source=ipv4(config.source);}
-  catch(e){this.state='Receiver stopped';this.lastError=`Stream PC relay setup is incomplete: ${e.message}. Complete the one-time migration before launching this app.`;return;}
-  if(await this.legacyRelayPresent().catch(()=>true)){this.state='Receiver stopped';this.lastError='The old VTube Input Relay scheduled task or process is still present. Complete the one-time Stream PC migration, then launch this app again.';return;}
+  catch(e){this.state='Receiver stopped';this.lastError=`Streaming PC relay setup is incomplete: ${e.message}. Complete the one-time migration before launching this app.`;return;}
+  if(await this.legacyRelayPresent().catch(()=>true)){this.state='Receiver stopped';this.lastError='The old VTube Input Relay scheduled task or process is still present. Complete the one-time Streaming PC migration, then launch this app again.';return;}
   this.stopping=false;await this.launch();this.timer=this.timers.setInterval(()=>this.poll().catch(()=>{}),this.interval);
  }
  async launch(){
@@ -146,7 +146,7 @@ export class TrackingReceiver {
   if(!d.vts_connected)return {...base,state:'Waiting for VTube Studio',detail:'Open VTube Studio and enable its API.'};
   const age=this.now()-Number(d.last_packet_unix_ms);
   if(base.packets>0&&age>=0&&age<=2500)return {...base,state:'Receiving input',detail:`Connected to VTube Studio; recent input from ${base.source}.`};
-  return {...base,state:'Waiting for gaming PC',detail:`VTube Studio is connected. No recent input from ${base.source}.`};
+  return {...base,state:'Waiting for the Gaming PC',detail:`VTube Studio is connected. No recent input from ${base.source}.`};
  }
 }
 

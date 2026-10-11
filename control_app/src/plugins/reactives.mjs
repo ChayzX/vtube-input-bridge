@@ -3,7 +3,7 @@ import {userError} from '../errors.mjs';import {validateSourceUrl} from '../fram
 // PC serves them to a VTube Studio Web Item. Show/hide is remembered in settings.
 export function createReactivesPlugin({getConfig,linkError,renderer,frames,setVisible,clearPeerFrame,stopped=()=>{}}){
  // Refusals here are certain to have changed nothing, so they say exactly why.
- const only=role=>{if(getConfig()?.role!==role)throw userError(role==='pantry'?'The reactive renderer runs on the gaming PC (Pantry). Point this button at Pantry.':'Reactives are shown and hidden on the stream PC (Canada). Point this button at Canada.','wrong_pc');};
+ const only=role=>{if(getConfig()?.role!==role)throw userError(role==='pantry'?'The reactive renderer runs on the Gaming PC. Point this button at the Gaming PC.':'Reactives are shown and hidden on the Streaming PC. Point this button at the Streaming PC.','wrong_pc');};
  return {id:'reactives',name:'Reactives',
   start(){const error=linkError();if(error)throw new Error(error);},
   stop(){renderer.stop();},
@@ -13,8 +13,8 @@ export function createReactivesPlugin({getConfig,linkError,renderer,frames,setVi
    'reactive.show':async(args,deadline)=>(only('canada'),{visible:await setVisible(true,deadline)}),
    'reactive.hide':async(args,deadline)=>(only('canada'),{visible:await setVisible(false,deadline)}),
    'reactive.start':async()=>{only('pantry');const {enabled,url}=getConfig().reactive;
-    if(!enabled)throw userError('Fugi rendering is turned off on this PC. Tick "Allow experimental rendering on Pantry" in settings and save.','disabled');
-    if(!url)throw userError('Enter the Fugi group browser-source URL in settings on Pantry and save.','not_configured');
+    if(!enabled)throw userError('Fugi rendering is turned off on this PC. Turn on "Render reactives on this PC" under Reactives and save.','disabled');
+    if(!url)throw userError('Enter the Fugi browser-source URL under Reactives on the Gaming PC and save.','not_configured');
     try{validateSourceUrl(url);}catch(e){throw userError(String(e.message).replace(/\.?$/,'.'),'not_configured');}
     await renderer.start(url);return {state:renderer.state};},
    'reactive.stop':async()=>{only('pantry');stopped();renderer.stop();await clearPeerFrame().catch(()=>{});return {state:'Stopped'};}

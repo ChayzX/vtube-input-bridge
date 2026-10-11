@@ -90,7 +90,7 @@ internal sealed class BridgeForm : Form
         try { Icon = Icon.ExtractAssociatedIcon(Assembly.GetExecutingAssembly().Location); } catch { Icon = SystemIcons.Application; }
 
         AddLabel("VTUBE INPUT BRIDGE", 20, 18, 395, 23, 13f, FontStyle.Bold, ink);
-        AddLabel(receiver ? "STREAM PC  •  CANADA" : "GAMING PC  •  INPUT SENDER", 20, 47, 395, 20, 8.5f, FontStyle.Bold, muted);
+        AddLabel(receiver ? "STREAMING PC  •  RECEIVER" : "GAMING PC  •  INPUT SENDER", 20, 47, 395, 20, 8.5f, FontStyle.Bold, muted);
         status = AddLabel("Checking…", 20, 83, 395, 29, 14f, FontStyle.Bold, amber);
         detail = AddLabel("", 20, 119, 395, 43, 9f, FontStyle.Regular, muted);
         count = AddLabel("", 20, 159, 395, 22, 9f, FontStyle.Regular, muted);

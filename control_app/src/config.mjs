@@ -12,11 +12,11 @@ export function upgradeConfig(c,role){
 }
 export function validatePair(p){if(!p||!privateIp(p.host)||p.port!==5056||!/^[a-f0-9]{64}$/.test(p.pin)||!/^[a-f0-9]{64}$/.test(p.token))throw new Error('Invalid pairing file: private IPv4, port 5056, token and certificate pin required');return {host:p.host,port:p.port,pin:p.pin,token:p.token};}
 export function validateConfig(c){
- if(c?.version!==1||!['pantry','canada'].includes(c.role)||typeof c.enabled!=='boolean'||!privateIp(c.ownIp))throw new Error('Choose a role and this PC’s private IPv4 address');
+ if(c?.version!==1||!['pantry','canada'].includes(c.role)||typeof c.enabled!=='boolean'||!privateIp(c.ownIp))throw new Error('Enter this PC’s local IPv4 address (for example 192.168.1.20) under PC link');
  for(const section of ['obs','vts','spotify','reactive','meld'])if(typeof c[section]?.enabled!=='boolean')throw new Error('Invalid feature setting');
  loopbackWs(c.obs.url);loopbackWs(c.vts.url);loopbackWs(c.meld.url);if(typeof c.obs.password!=='string'||typeof c.vts.token!=='string')throw new Error('Invalid credentials');
- if(c.peer)validatePair(c.peer);if(c.enabled&&!c.peer)throw new Error('Import the other PC’s pairing file before enabling');
+ if(c.peer)validatePair(c.peer);if(c.enabled&&!c.peer)throw new Error('Pair the two PCs under PC link before turning on remote controls');
  if(c.peer?.host===c.ownIp)throw new Error('The two PCs must have different addresses');
- if(c.reactive.url)validateFugiUrl(c.reactive.url);if(c.reactive.enabled&&c.role!=='pantry')throw new Error('Fugi rendering belongs on Pantry with Discord');
+ if(c.reactive.url)validateFugiUrl(c.reactive.url);if(c.reactive.enabled&&c.role!=='pantry')throw new Error('Reactives are rendered on the Gaming PC, where Discord runs');
  return c;
 }

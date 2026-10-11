@@ -12,10 +12,10 @@ if ($task.Principal.UserId -notin @('SYSTEM','S-1-5-18')) { throw 'The relay tas
 $action = $task.Actions[0]
 $expectedExe = Join-Path $env:ProgramData 'VTubeInputRelay\vts_input_relay.exe'
 if ([IO.Path]::GetFullPath($action.Execute) -ne [IO.Path]::GetFullPath($expectedExe)) { throw 'The relay task points to an unexpected executable. No changes were made.' }
-if ($action.Arguments -notmatch '(?:^|\s)--source\s+(?:"(?<quoted>[^" ]+)"|(?<plain>[^\s]+))') { throw 'Could not read the configured Pantry address from the task. No changes were made.' }
+if ($action.Arguments -notmatch '(?:^|\s)--source\s+(?:"(?<quoted>[^" ]+)"|(?<plain>[^\s]+))') { throw 'Could not read the configured Gaming PC address from the task. No changes were made.' }
 $source = if ($Matches.quoted) { $Matches.quoted } else { $Matches.plain }
 $ip = $null
-if (-not [Net.IPAddress]::TryParse($source, [ref]$ip) -or $ip.AddressFamily -ne [Net.Sockets.AddressFamily]::InterNetwork) { throw 'The task does not contain a valid Pantry IPv4 address. No changes were made.' }
+if (-not [Net.IPAddress]::TryParse($source, [ref]$ip) -or $ip.AddressFamily -ne [Net.Sockets.AddressFamily]::InterNetwork) { throw 'The task does not contain a valid Gaming PC IPv4 address. No changes were made.' }
 $expectedToken = Join-Path $env:ProgramData 'VTubeInputRelay\vts-token.txt'
 $expectedStatus = Join-Path $env:ProgramData 'VTubeInputRelay\status.json'
 $expectedArguments = '--source ' + $ip.ToString() + ' --token-file "' + $expectedToken + '" --status-file "' + $expectedStatus + '"'
@@ -58,5 +58,5 @@ try {
     Remove-Item -LiteralPath $configPath -Force -ErrorAction SilentlyContinue
     throw
 }
-Write-Output "Migration complete for Pantry $($ip.ToString()). Task XML and restore record: $recordPath"
+Write-Output "Migration complete for Gaming PC $($ip.ToString()). Task XML and restore record: $recordPath"
 Write-Output 'The old executable, token, status file, firewall rule, VTube Studio, and OBS were left unchanged.'

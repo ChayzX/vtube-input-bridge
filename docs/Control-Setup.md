@@ -1,76 +1,94 @@
-# VTube Control preview setup and rollback
+# VTube Input Bridge setup and rollback
 
-VTube Input Bridge 0.3.0-preview.3 includes the tracking app and owns the Stream PC relay process. The app runs in the signed-in user's session. Closing its window hides it in the tray; choosing **Exit VTube Input Bridge** stops the relay and app. It keeps using UDP 5055 and does not change OBS or VTube Studio settings. The one-click installer adds one firewall rule for the link between the PCs (below); nothing else changes firewall rules.
+VTube Input Bridge 0.3.0-preview.3 includes the tracking app and runs the Streaming PC's relay itself. The app runs in the signed-in user's session. Closing its window keeps it in the tray; choosing **Exit VTube Input Bridge** from the tray stops the relay and the app. It keeps using UDP 5055 and does not change OBS or VTube Studio settings. The one-click installer adds one firewall rule for the link between the PCs (below); nothing else changes firewall rules.
 
-## Install later, during an offline test window
+In this guide the **Gaming PC** is the PC you play on, with the Stream Deck and Discord. The **Streaming PC** is the PC that runs VTube Studio and usually OBS.
 
-`Install-VTubeInputBridge-GamingPC.cmd` and `Install-VTubeInputBridge-StreamPC.cmd` (made by `scripts/New-ControlInstaller.ps1`) install the app for the signed-in user and start it. On Canada, the one-click installer asks for a one-time UAC approval to save the old task and source address, then stop and remove only the old `VTube Input Relay` scheduled task. On both PCs it also asks for UAC approval to add an inbound rule for this version's app on TCP 5056 (private networks, local subnet, group **VTube Input Bridge**), replacing the previous version's; without it Windows asks when the app first listens, and a cancelled prompt blocks the other PC. If you decline, allow VTube Input Bridge on private networks when Windows asks. The installer itself and app remain non-elevated. The app uses a new per-user VTS token, so VTube Studio may ask for approval again. The old ProgramData executable and token are retained for rollback. Do not run `Install-StreamPC.ps1` again.
+## Installing
 
-If a stream PC update stopped halfway (the old task is gone but the app says the relay setup is incomplete, or the restore tool set up the gaming PC sender on it), run `scripts/Fix-StreamPC.cmd` there as the signed-in user with the newest StreamPC installer in Downloads or on the Desktop. It recreates `relay-config.json` from the migration record and runs that installer. If the old task is still present it only runs the installer, which migrates the task.
+`Install-VTubeInputBridge-GamingPC.cmd` and `Install-VTubeInputBridge-StreamPC.cmd` (made by `scripts/New-ControlInstaller.ps1`) install the app for the signed-in user and start it. Install them while you are not streaming.
 
-When the one-click installer finishes, it reports the result in a dialog. On success, clicking **OK** opens the app and the installer window closes by itself; no key press is needed. On failure the installer window stays open with the details; take a screenshot, then close it with its X button. Before this fix ([#6](https://github.com/ChayzX/vtube-input-bridge/issues/6)) the window ended with "Press any key to continue", which ignored key presses once the newly opened app, the firewall prompt or Stream Deck had keyboard focus. If you see that with an older installer, the install has already finished: close the window with X. For scripted installs, set `VTC_QUIET=1` to skip the dialog.
+- On the Streaming PC, the installer asks once for Windows administrator approval. It saves the old relay task and its source address, then stops and removes only the old `VTube Input Relay` scheduled task.
+- On both PCs it also asks for approval to add an inbound rule for this version of the app on TCP 5056 (private networks, local subnet, group **VTube Input Bridge**), replacing the previous version's rule. If you decline, Windows asks when the app first listens: allow VTube Input Bridge on private networks, or the other PC cannot connect.
+- The installer and the app themselves run without administrator rights. The app uses a new per-user VTube Studio token, so VTube Studio may ask for approval again. The old ProgramData executable and token are kept for rollback. Do not run `Install-StreamPC.ps1` again.
 
-1. Verify the ZIP checksum and extract the package for the appropriate PC. Exit the current VTube Input Bridge app from its tray before installing the update.
+When the installer finishes, it reports the result in a dialog. On success, clicking **OK** opens the app and the installer window closes by itself. On failure the installer window stays open with the details; take a screenshot, then close it with its X button. For scripted installs, set `VTC_QUIET=1` to skip the dialog.
+
+If a Streaming PC update stopped halfway (the old task is gone but the app says the relay setup is incomplete, or the restore tool set up the Gaming PC sender on it), run `scripts/Fix-StreamPC.cmd` there as the signed-in user, with the newest StreamPC installer in Downloads or on the Desktop. It recreates `relay-config.json` from the migration record and runs that installer. If the old task is still present it only runs the installer, which migrates the task.
+
+### Installing by hand
+
+1. Verify the ZIP checksum and extract the package for the PC. Exit the running VTube Input Bridge from its tray first.
 2. In PowerShell, run `./Install-Control.ps1`. It installs into `%LOCALAPPDATA%\VTubeControl\versions\<version>`, creates Desktop and Start menu **VTube Input Bridge** shortcuts, and records backups. It does not launch the app, enable startup, or add a firewall rule by default.
-3. Optional flags: `-EnableStartup` adds a separate per-user Run entry; `-EnableFirewall -PeerAddress <other-PC-IP>` creates a uniquely named private-network inbound TCP 5056 rule. The firewall option requires elevated PowerShell under the same Windows account that will run the companion. Pantry peer: `10.0.0.119`; Canada peer: `10.0.0.112`. Confirm current IPs first.
-4. On Canada, if doing a manual install, run `Migrate-StreamPCRelay.ps1` as administrator once before opening the new app. It preserves the task XML and Pantry source under `%LOCALAPPDATA%\VTubeControl\retired`. If the task is already gone, use the existing `%APPDATA%\VTubeControl\relay-config.json`; do not guess an address. Open **VTube Input Bridge** on both PCs. Tracking appears at the top and works without pairing. Check the heading shows the right PC (it is set by the installer) and confirm its own IP. Export that PC’s pairing file, securely transfer it, and import it on the other PC. Pairing files contain a connection credential: delete transfer copies afterward. A replacement identity requires pairing again.
-5. New installs start with OBS, Meld Studio, Spotify and VTube Studio controls (and, on Pantry, Fugi rendering) turned on; Stream Deck controls switch on by themselves the first time a pairing file is imported. Settings saved by an older version keep their choices, except Meld Studio, which did not exist then and starts on. Turn off anything a PC does not use. For Meld Studio, turn on **Settings > Advanced > Allow remote connections** in Meld; the app connects to `ws://127.0.0.1:13376` and only lists and switches scenes. Stream Deck buttons use the **Meld Studio — change scene** action with the scene name. Configure the OBS loopback WebSocket URL/password in this app. If OBS WebSocket is not enabled, record its previous configuration before enabling it manually. Do not expose OBS WebSocket to the LAN for this setup. Spotify must be running in the same signed-in user session. The first VTube Studio request (for example **Fetch scenes / hotkeys** on a VTS button) makes VTube Studio on Canada ask to allow the separate **VTube Control** plugin; the button reports that it is waiting. Click **Allow** in VTube Studio on the stream PC within 90 seconds, then press again. If the plugin is later removed in VTube Studio, the next press asks again.
-6. Once both PCs have imported the other's pairing file, controls are on. Existing tracking is unaffected. Test **List OBS scenes**, **List VTS hotkeys**, and **Pause Spotify** from Pantry with the target **Other PC**. A timeout may mean the action already happened: check the app before pressing again.
+3. Optional flags: `-EnableStartup` adds a per-user Run entry; `-EnableFirewall -PeerAddress <other-PC-IP>` creates a private-network inbound TCP 5056 rule. The firewall option needs an elevated PowerShell under the same Windows account that will run the app. Confirm both PCs' current addresses first.
+4. On the Streaming PC, run `Migrate-StreamPCRelay.ps1` as administrator once before opening the new app. It keeps the task XML and the Gaming PC's address under `%LOCALAPPDATA%\VTubeControl\retired`. If the task is already gone, use the existing `%APPDATA%\VTubeControl\relay-config.json`; do not guess an address.
 
-## Stream Deck on Pantry
+## First run and pairing
 
-Requires Stream Deck 7.1+ with its bundled Node 24 runtime. Install `com.chayzx.vtubecontrol.streamDeckPlugin` manually in Stream Deck. Existing buttons/profiles are untouched. Add **VTube Control → Bridge command** buttons:
+Open **VTube Input Bridge** on both PCs. The window opens on **Home**, which shows whether you are live-ready and a card for tracking, the PC link and each app. The card at the bottom of the sidebar shows which PC you are on (set by the installer).
 
-- Other PC + OBS scene: fetch scenes, choose a scene name.
-- Other PC + Spotify: play, pause, next or previous. Spotify-specific Windows media sessions are used; unsupported actions fail visibly.
-- Other PC + VTube Studio hotkey: fetch hotkeys, choose a saved Item Scene or other desired hotkey; the key is titled with the hotkey's name.
-- Reactives show/hide: controls Canada’s received overlay. Reactives start/stop: controls Pantry’s renderer. The target is set automatically for these.
+1. **Tracking** works without pairing. On the Gaming PC, enter the Streaming PC's address under **Tracking** and choose **Start sending**.
+2. **PC link**: check **This PC's address** on both PCs. Choose **Export pairing file**, copy the file to the other PC and choose **Import pairing file** there. Then do the same the other way round. Pairing files contain a connection credential: delete the copies afterwards. A replacement identity needs pairing again.
+3. Remote controls switch on by themselves the first time a pairing file is imported. You can pause them under **PC link** or from the tray.
+4. **Apps**: new installs start with OBS, Meld Studio, Spotify and VTube Studio turned on (and, on the Gaming PC, reactives). Settings saved by an older version keep their choices, except Meld Studio, which starts on. Turn off anything a PC does not use. Changes to text fields and switches on these pages are saved with the **Save** bar that appears at the bottom.
+   - **OBS**: enter the WebSocket address and password from OBS > Tools > WebSocket Server Settings. If OBS WebSocket is not enabled, record its previous configuration before enabling it. Do not expose OBS WebSocket to the network for this setup.
+   - **Meld Studio**: turn on **Settings > Advanced > Allow remote connections** in Meld. The app connects to `ws://127.0.0.1:13376` and only lists and switches scenes.
+   - **Spotify** must be running in the same signed-in user session.
+   - **VTube Studio**: the first request (for example **Test** on the VTube Studio card, or opening a VTube Studio hotkey key's settings in Stream Deck) makes VTube Studio ask to allow the **VTube Control** plugin. Click **Allow** in VTube Studio within 90 seconds, then try again. If the plugin is later removed in VTube Studio, the next request asks again.
+5. Use **Test** on each card on **Home**, or the buttons under **Stream Deck > Try a command**, to check each app. A timeout may mean the action already happened: check the app before trying again.
 
-Button feedback reports disconnected/error/uncertain states. One press produces one command; no automatic retries or replays after reconnect. Connection polling is separate from tracking. Do not configure stream start/stop, power operations or arbitrary shell commands: these are outside this preview.
+## Stream Deck
 
-## Reactive avatars inside Canada VTube Studio
+The Stream Deck sits on the Gaming PC. It needs Stream Deck 7.1 or newer with its bundled Node 24 runtime. The Gaming PC installer hands `com.chayzx.vtubecontrol.streamDeckPlugin` to Stream Deck; existing buttons and profiles are untouched. Add **VTube Control > Bridge command** keys:
 
-This route is experimental. Fugi’s public embed code requests local Discord connectivity, so rendering belongs on Pantry where the voice call runs. Actual Fugi/Discord permissions and speaking behavior still require a physical Windows test.
+- Choose the PC and the action. For OBS and Meld Studio scenes and VTube Studio hotkeys, the list fills itself when you open the key's settings; choose **Refresh** after opening the app.
+- Spotify: play, pause, next or previous. Spotify's Windows media session is used; unsupported actions fail visibly.
+- VTube Studio hotkey: choose a saved Item Scene or other hotkey; the key is titled with the hotkey's name.
+- Reactives show/hide control the overlay on the Streaming PC. Reactives start/stop control the renderer on the Gaming PC. The PC is set automatically for these.
 
-1. Use Fugi on Pantry to configure avatars and copy its **group browser-source** URL. The companion supports the verified `/group` and `/individual/<Discord-ID>` embed routes only. Account/login/settings pages are rejected. New custom/basic source formats need an explicit future compatibility update.
-2. Enable experimental rendering on Pantry, paste the source URL, and save. The login window (**Log in to Fugi on Pantry**) is never relayed; it shares the renderer's browser session, so a login there is what the renderer uses. After logging in, start the renderer again. The embed must obtain any required local Discord authorization. If authorization cannot complete, stop and investigate rather than bypassing browser security.
-3. Start the renderer explicitly. The companion relays a maximum 1024×512 PNG image at up to 10 fps. Frames use authenticated, certificate-pinned LAN transport. Browser camera/microphone permissions stay disabled; the trusted Fugi embed may request loopback-network access to Discord. Discord RPC endpoints are not forwarded over the LAN.
-4. On Canada copy the **Canada Web Item URL** from Canada’s companion. Manually load it as a VTube Studio Web Item, enable transparency, position it, and save an Item Scene/hotkey. The VTS API cannot automatically create arbitrary Web Items.
-5. Verify at least two people speaking separately, silence, join/leave, changing calls, renderer stop/restart and LAN disconnect. The overlay clears after two seconds without frames. Renderer liveness is checked before upload; this does not establish that Fugi’s upstream Discord speaking state is fresh. Never call the integration verified based solely on the “sending images” status.
+Keys show the result for a moment, then their title returns. One press sends one command; nothing is retried or replayed after a reconnect. Do not configure stream start/stop, power operations or arbitrary shell commands: these are not supported.
 
-Closing the app window keeps it in the tray. **Exit VTube Input Bridge** stops the whole app and its managed relay child. Unexpected relay exits are restarted with backoff. Pantry shows **Connected** only after Canada acknowledges a packet that VTube Studio applied; **Waiting for Stream PC** means there has been no recent acknowledgement. On the gaming PC the experimental renderer starts by itself when the app launches (including at Windows sign-in) once the PCs are paired and a Fugi URL is saved, and restarts after settings are saved. If the Fugi page cannot load yet (for example the network is not up at sign-in), it keeps retrying. **Stop renderer** stops it until the next launch or save.
+## Reactive avatars in VTube Studio
+
+Fugi's embed needs the local Discord app, so reactives are rendered on the Gaming PC, where the voice call runs, and shown on the Streaming PC.
+
+1. Use Fugi on the Gaming PC to set up avatars and copy its **group browser-source** URL. The app supports Fugi's `/group` and `/individual/<Discord-ID>` embed pages only; account, login and settings pages are rejected.
+2. On the Gaming PC, under **Reactives**, turn on **Render reactives on this PC**, paste the URL and save. **Sign in to Fugi** opens a window that is never sent to the Streaming PC; it shares the renderer's browser session, so signing in there is what the renderer uses. After signing in, start the renderer again. If Discord authorization cannot complete, stop and investigate rather than bypassing browser security.
+3. The renderer starts by itself when the app launches (including at Windows sign-in) once the PCs are paired and a Fugi URL is saved, and restarts after saving settings. If the Fugi page cannot load yet, it keeps retrying. **Stop renderer** stops it until the next launch or save. It sends at most a 1024×512 PNG at up to 10 frames a second over the encrypted, certificate-pinned link. Browser camera and microphone permissions stay off; Discord's local endpoints are never forwarded over the network.
+4. On the Streaming PC, under **Reactives**, choose **Copy** next to the Web Item URL. Add it to VTube Studio as a Web Item, turn on transparency, position it and save an Item Scene or hotkey. VTube Studio's API cannot create Web Items automatically.
+5. Before relying on it on stream, check two people speaking separately, silence, joining and leaving, changing calls, stopping and restarting the renderer, and unplugging the network. The overlay clears two seconds after frames stop.
 
 ## If tracking does not connect
 
-1. Read Tracking on Canada first. **Waiting for VTube Studio** means open VTube Studio, enable its API, and approve **Game Input Relay** if it asks. **Waiting for gaming PC** means Canada is connected to VTube Studio but has not received recent input. **Receiver stopped** or **Restarting receiver** means the app is starting/recovering its relay.
-2. On Pantry, **Waiting for Stream PC** means the sender is running but has not received a recent acknowledgement. Check that Pantry is sending to Canada's current LAN address and that Canada's displayed Pantry source matches Pantry's current LAN address.
-3. If the PCs' addresses changed, restore their expected LAN addresses or update the saved receiver source and the existing restricted firewall rule through the normal setup process. Do not create broader firewall rules to make the warning disappear.
-4. Update both PCs to the same version (0.3.0-preview.3 or later). An older Canada relay does not send acknowledgements, so Pantry will keep showing **Waiting for Stream PC** even if the older setup is otherwise working.
-5. If both PCs are on the same version, both addresses match, and Canada says it is receiving input while Pantry remains waiting, the reply path is blocked. Check that the Windows network is set to Private on both PCs, since the installer's firewall rule only covers private networks, then record the exact messages on both PCs.
+1. Look at **Tracking** on the Streaming PC first. **Waiting for VTube Studio** means open VTube Studio, enable its API, and approve **Game Input Relay** if it asks. **Waiting for the Gaming PC** means VTube Studio is connected but no recent input has arrived. **Receiver stopped** or **Restarting receiver** means the app is starting or recovering its relay.
+2. On the Gaming PC, **Waiting for the Streaming PC** means the sender is running but has had no recent acknowledgement. Check that it is sending to the Streaming PC's current address, and that the address the Streaming PC accepts tracking from matches the Gaming PC's current address.
+3. If the PCs' addresses changed, give them back their expected addresses (a reserved address in the router helps), or update the saved receiver source and the firewall rule by reinstalling. Do not create broader firewall rules to make the warning go away.
+4. Update both PCs to the same version (0.3.0-preview.3 or later). An older Streaming PC relay does not send acknowledgements, so the Gaming PC keeps showing **Waiting for the Streaming PC** even when tracking works.
+5. If both PCs are on the same version, the addresses match, and the Streaming PC says it is receiving input while the Gaming PC keeps waiting, the reply path is blocked. Check that the Windows network is set to Private on both PCs, since the firewall rule only covers private networks, then note the exact messages on both PCs.
 
 ## Getting the separate tracking app back
 
 `scripts/Restore-SeparateTracking.cmd` restores the separate VTube Input Bridge window after a failed or unwanted update. Double-click it as the signed-in user; it needs no administrator rights.
-- It detects the PC: the stream PC is the one with the old VTube Input Relay task or, after the migration, its migration record or `relay-config.json`.
+- It detects the PC: the Streaming PC is the one with the old VTube Input Relay task or, after the migration, its migration record or `relay-config.json`.
 - It stops the new app and removes it from sign-in, setting the old entry aside in `%LOCALAPPDATA%\VTubeControl\retired`.
 - It finds the old app. It checks where the saved sign-in entry pointed, then the install folders, Downloads, Desktop and Documents, then the new install's own copy. As a last resort it uses a released copy embedded in the restore file and checked by SHA256.
-- It copies the app to `%LOCALAPPDATA%\Programs\VTubeInputBridge`, restores its sign-in entry (and its shortcuts on the gaming PC), and starts it.
+- It copies the app to `%LOCALAPPDATA%\Programs\VTubeInputBridge`, restores its sign-in entry (and its shortcuts on the Gaming PC), and starts it.
 
 It deletes no program files and never changes `vts_input_relay`. Rebuild the file with `scripts/New-RestoreTool.ps1 -ExePath <VTubeInputBridge.exe> -Version <tag>`.
 
-Since this fix, the one-click installer installs the new app before retiring the old one. If the install fails, the old app keeps running.
+The one-click installer installs the new app before retiring the old one. If the install fails, the old app keeps running.
 
-## Fast disable and full rollback
+## Pausing and full rollback
 
-Fast disable: choose **Disable Stream Deck controls and reactives** from the tray. It also takes the reactive overlay off stream on Canada (the Web Item goes blank) until controls are enabled again. Mouse/keyboard tracking keeps running; **Exit VTube Input Bridge** stops tracking too. Remove only the new bridge-command buttons/plugin if desired.
+To pause quickly, choose **Pause remote controls** from the tray. It also takes the reactive overlay off stream on the Streaming PC (the Web Item goes blank) until remote controls are turned on again under **PC link**. Tracking keeps running; **Exit VTube Input Bridge** stops tracking too.
 
 Full rollback:
 
 1. Exit **VTube Input Bridge** from its tray on the PC being rolled back; this also stops its tracking. Leave OBS and VTube Studio running.
-2. On Canada, restore the old relay task with an elevated PowerShell: `./Restore-StreamPCRelay.ps1 -Record '<path printed by the migration>'`. The app must be exited first. This registers and starts the exact task XML saved during migration.
+2. On the Streaming PC, restore the old relay task from an elevated PowerShell: `./Restore-StreamPCRelay.ps1 -Record '<path printed by the migration>'`. The app must be exited first. This registers and starts the exact task XML saved during migration.
 3. Run `./Rollback-Control.ps1 -Record '<path printed by installer>\rollback.json'`. Use an elevated shell if the installer added a firewall rule.
-4. It restores backed-up shortcuts, optional startup value and companion settings; removes only its version directory and uniquely named firewall rule. Older versions and tracking files are retained. Use `-KeepSettings` if you intentionally want to preserve the companion’s current configuration.
-5. In Stream Deck remove the new plugin manually. Back up a Stream Deck profile before editing it if you need to restore button assignments exactly.
-6. Remove the new reactive Web Item/Item Scene manually, or restore the saved VTS item configuration. Any manual OBS/VTS configuration is outside the installer: record it beforehand and reverse those exact changes. No automation changes those applications’ settings.
+4. It restores backed-up shortcuts, the optional startup entry and the app's settings, and removes only its version folder and its own firewall rule. Older versions and tracking files are kept. Use `-KeepSettings` to keep the app's current settings.
+5. In Stream Deck, remove the plugin by hand. Back up a Stream Deck profile before editing it if you need to restore key assignments exactly.
+6. Remove the reactive Web Item or Item Scene by hand, or restore the saved VTube Studio item configuration. Any manual OBS or VTube Studio changes are outside the installer: note them beforehand and reverse those exact changes.
 
-Rollback validates its version, settings, shortcut and backup paths, recognizes already restored shortcuts, and can resume after interruption. Installers refuse to replace a running companion and record partial installs for rollback. Rollback refuses to overwrite shortcuts/startup entries that were edited afterward. Restore the intended original files from the printed backup location if that guard fires. Per-user browser cookies may remain after rollback; they are inert without the companion and can be removed separately if desired.
+Rollback checks its version, settings, shortcut and backup paths, recognizes shortcuts that are already restored, and can resume after an interruption. Installers refuse to replace a running app and record partial installs for rollback. Rollback refuses to overwrite shortcuts or startup entries that were edited afterwards; restore the intended files from the printed backup location if that guard fires. Browser cookies from Fugi may remain after rollback; they do nothing without the app and can be removed separately.

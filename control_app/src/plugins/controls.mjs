@@ -4,7 +4,7 @@ import {obsAction} from '../obs.mjs';import {describing,userError} from '../erro
 // settings; commands arrive from this PC's Stream Deck or from the paired PC over the secure link.
 export function createControlsPlugin({getConfig,linkError,mediaExe,saveVtsToken}){
  const names={obs:'OBS',meld:'Meld Studio',spotify:'Spotify',vts:'VTube Studio'};
- const enabled=section=>{const config=getConfig();if(!config?.[section]?.enabled)throw userError(`${names[section]} controls are turned off on this PC. Turn them on under Apps on this PC and save.`,'disabled');return config;};
+ const enabled=section=>{const config=getConfig();if(!config?.[section]?.enabled)throw userError(`${names[section]} controls are turned off on this PC. Turn them on under Apps and save.`,'disabled');return config;};
  return {id:'controls',name:'Stream Deck controls',
   start(){const error=linkError();if(error)throw new Error(error);},
   status(){const c=getConfig();return c?{obs:c.obs.enabled,meld:!!c.meld?.enabled,spotify:c.spotify.enabled,vts:c.vts.enabled}:{};},
