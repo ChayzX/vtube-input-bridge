@@ -85,7 +85,7 @@ try {
  Assert (-not ($bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB)) 'last-update.json must have no byte-order mark'
  $lines=@(Get-Content -LiteralPath $result); Assert ($lines.Count -eq 1) 'last-update.json must be one line'
  $json=$lines[0] | ConvertFrom-Json
- Assert ($json.version -eq '1.0.0-rc.1' -and $json.ok -eq $false -and $json.message -like '*"quoted" reason' -and [string]$json.at -match '^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$') 'last-update.json fields'
+ Assert ($json.version -eq '1.0.0-rc.1' -and $json.ok -eq $false -and $json.message -like '*"quoted" reason' -and $lines[0] -match '"at":"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z"') 'last-update.json fields'
  $fields=(@($json.PSObject.Properties.Name) -join ',')
  Assert ($fields -eq 'version,ok,message,at') 'last-update.json field order'
  Write-Host 'One-click role order (VTC_ROLE, role.txt, relay task, question) and last-update.json: PASS'

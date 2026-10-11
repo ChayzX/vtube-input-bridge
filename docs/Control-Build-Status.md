@@ -1,4 +1,4 @@
-# VTube Control preview build status
+# VTube Input Bridge build status
 
 ## Lifecycle update (2026-10-07)
 

@@ -44,28 +44,29 @@ Open **Settings > Apps > Installed apps**, find **VTube Input Bridge** and choos
 
 ## First run and pairing
 
-Open **VTube Input Bridge** on both PCs. The window opens on **Home**, which shows whether you are live-ready and a card for tracking, the PC link and each app. The card at the bottom of the sidebar shows which PC you are on (set by the installer).
+Open **VTube Input Bridge** on both PCs. The window opens on **Home**, which shows whether you are live-ready, a **Finish setting up** checklist that ticks itself off, and a card for tracking, the PC link and each app. The card at the bottom of the sidebar shows which PC you are on (set by the installer).
 
-1. **Tracking** works without pairing. On the Gaming PC, enter the Streaming PC's address under **Tracking** and choose **Start sending**.
-2. **PC link**: check **This PC's address** on both PCs. Choose **Export pairing file**, copy the file to the other PC and choose **Import pairing file** there. Then do the same the other way round. Pairing files contain a connection credential: delete the copies afterwards. A replacement identity needs pairing again.
-3. Remote controls switch on by themselves the first time a pairing file is imported. You can pause them under **PC link** or from the tray.
-4. **Apps**: new installs start with OBS, Meld Studio, Spotify and VTube Studio turned on (and, on the Gaming PC, reactives). Settings saved by an older version keep their choices, except Meld Studio, which starts on. Turn off anything a PC does not use. Changes to text fields and switches on these pages are saved with the **Save** bar that appears at the bottom.
+1. **Pair the PCs** (once). On one PC open **PC link** and choose **Show a pairing code**. On the other PC open **PC link**, choose **Enter a code**, type the 6-digit code and choose **Pair**. Both PCs must be on the same home network, set to Private in Windows. Three wrong codes or five minutes close the code; start again if that happens.
+2. Nobody types an IP address. Each PC finds its own address, and the PCs find each other again by themselves when the router gives either one a new address. Tracking follows: the Gaming PC sends to the Streaming PC's current address once they are paired.
+3. Remote controls are on from the start. Keys for apps on the same PC work before pairing; keys for the other PC work once the PCs are paired. Pause them from the tray (**Pause remote controls**, then **Resume remote controls**) or under **PC link**.
+4. If the PCs cannot see each other (some mesh Wi-Fi or guest networks block it), use **PC link › Pair with files instead**: export a pairing file on each PC and import it on the other, then delete the copies. A PC that was reinstalled or reset needs pairing again.
+5. **Apps**: new installs start with OBS, Meld Studio, Spotify and VTube Studio turned on (and, on the Gaming PC, reactives). Settings saved by an older version keep their choices, except Meld Studio, which starts on. Turn off anything a PC does not use. Changes to text fields and switches on these pages are saved with the **Save** bar that appears at the bottom.
    - **OBS**: enter the WebSocket address and password from OBS > Tools > WebSocket Server Settings. If OBS WebSocket is not enabled, record its previous configuration before enabling it. Do not expose OBS WebSocket to the network for this setup.
    - **Meld Studio**: turn on **Settings > Advanced > Allow remote connections** in Meld. The app connects to `ws://127.0.0.1:13376` and only lists and switches scenes.
    - **Spotify** must be running in the same signed-in user session.
-   - **VTube Studio**: the first request (for example **Test** on the VTube Studio card, or opening a VTube Studio hotkey key's settings in Stream Deck) makes VTube Studio ask to allow the **VTube Control** plugin. Click **Allow** in VTube Studio within 90 seconds, then try again. If the plugin is later removed in VTube Studio, the next request asks again.
-5. Use **Test** on each card on **Home**, or the buttons under **Stream Deck > Try a command**, to check each app. A timeout may mean the action already happened: check the app before trying again.
+   - **VTube Studio**: the first request (for example **Test** on the VTube Studio card, or opening a VTube Studio hotkey key's settings in Stream Deck) makes VTube Studio ask to allow the **VTube Input Bridge** plugin. Click **Allow** in VTube Studio within 90 seconds, then try again. After updating from a version before 1.0 it asks once more, because the plugin was renamed. If VTube Studio is not running, the request says so instead of asking.
+6. Use **Test** on each card on **Home**, or the buttons under **Stream Deck > Try a command**, to check each app. A timeout may mean the action already happened: check the app before trying again.
 
 ## Stream Deck
 
-The Stream Deck sits on the Gaming PC. It needs Stream Deck 7.1 or newer with its bundled Node 24 runtime. On the Gaming PC the installer hands `com.chayzx.vtubecontrol.streamDeckPlugin` to Stream Deck; existing buttons and profiles are untouched. Add **VTube Control > Bridge command** keys:
+The Stream Deck sits on the Gaming PC. It needs Stream Deck 7.1 or newer with its bundled Node 24 runtime. On the Gaming PC the installer hands `com.chayzx.vtubecontrol.streamDeckPlugin` to Stream Deck; existing buttons and profiles are untouched. The actions are in the **VTube Input Bridge** category, one per job: **OBS scene**, **Meld Studio scene**, **VTube Studio hotkey**, **Spotify**, **Show/hide reactives** and **Reactive renderer**. Keys made with the old **Bridge command** action keep working (it is now **Advanced command**).
 
-- Choose the PC and the action. For OBS and Meld Studio scenes and VTube Studio hotkeys, the list fills itself when you open the key's settings; choose **Refresh** after opening the app.
+- Choose the PC. For OBS and Meld Studio scenes and VTube Studio hotkeys, the list fills itself when you open the key's settings; choose **Refresh** after opening the app.
 - Spotify: play, pause, next or previous. Spotify's Windows media session is used; unsupported actions fail visibly.
 - VTube Studio hotkey: choose a saved Item Scene or other hotkey; the key is titled with the hotkey's name.
 - Reactives show/hide control the overlay on the Streaming PC. Reactives start/stop control the renderer on the Gaming PC. The PC is set automatically for these.
 
-Keys show the result for a moment, then their title returns. One press sends one command; nothing is retried or replayed after a reconnect. Do not configure stream start/stop, power operations or arbitrary shell commands: these are not supported.
+Keys show the result for a moment, then their title returns. A failed press says why on the key (**Not paired**, **Paused**, **Busy**, **Timed out**, **App off**, **Failed**) and the full reason appears in the key's settings under **Last press**. One press sends one command; nothing is retried or replayed after a reconnect. Do not configure stream start/stop, power operations or arbitrary shell commands: these are not supported.
 
 ## Reactive avatars in VTube Studio
 
@@ -81,8 +82,8 @@ Fugi's embed needs the local Discord app, so reactives are rendered on the Gamin
 
 1. Look at **Tracking** on the Streaming PC first. **Waiting for VTube Studio** means open VTube Studio, enable its API, and approve **Game Input Relay** if it asks. **Waiting for the Gaming PC** means VTube Studio is connected but no recent input has arrived. **Receiver stopped** or **Restarting receiver** means the app is starting or recovering its relay.
 2. On the Gaming PC, **Waiting for the Streaming PC** means the sender is running but has had no recent acknowledgement. Check that it is sending to the Streaming PC's current address, and that the address the Streaming PC accepts tracking from matches the Gaming PC's current address.
-3. If the PCs' addresses changed, give them back their expected addresses (a reserved address in the router helps), or update the saved receiver source. The firewall rules allow the whole local network, so they need no change; if they are missing (the Windows prompt was declined), run the installer again. Do not create broader firewall rules to make the warning go away.
-4. Update both PCs to the same version (0.3.0-preview.5 or later). An older Streaming PC relay does not send acknowledgements, so the Gaming PC keeps showing **Waiting for the Streaming PC** even when tracking works.
+3. Address changes are handled by themselves once the PCs are paired; **Logs** shows "The other PC's address changed" when it happens. If the PCs are not paired, pair them. The firewall rules allow the whole local network, so they need no change; if they are missing (the Windows prompt was declined), run the installer again. Do not create broader firewall rules to make the warning go away.
+4. Update both PCs to the same version (**Advanced › Updates › Update both PCs** does this). An older Streaming PC relay does not send acknowledgements, so the Gaming PC keeps showing **Waiting for the Streaming PC** even when tracking works.
 5. If both PCs are on the same version, the addresses match, and the Streaming PC says it is receiving input while the Gaming PC keeps waiting, the reply path is blocked. Check that the Windows network is set to Private on both PCs, since the firewall rule only covers private networks, then note the exact messages on both PCs.
 
 ## Getting the separate tracking app back
@@ -99,7 +100,7 @@ The one-click installer installs the new app before retiring the old one. If the
 
 ## Pausing and full rollback
 
-To pause quickly, choose **Pause remote controls** from the tray. It also takes the reactive overlay off stream on the Streaming PC (the Web Item goes blank) until remote controls are turned on again under **PC link**. Tracking keeps running; **Exit VTube Input Bridge** stops tracking too.
+To pause quickly, choose **Pause remote controls** from the tray. It also takes the reactive overlay off stream on the Streaming PC (the Web Item goes blank) until you choose **Resume remote controls** in the tray or turn them on under **PC link**. Tracking keeps running; **Exit VTube Input Bridge** stops tracking too.
 
 Full rollback:
 
@@ -111,3 +112,7 @@ Full rollback:
 6. Remove the reactive Web Item or Item Scene by hand, or restore the saved VTube Studio item configuration. Any manual OBS or VTube Studio changes are outside the installer: note them beforehand and reverse those exact changes.
 
 Rollback checks its version, settings, shortcut and backup paths, recognizes shortcuts that are already restored, and can resume after an interruption. Installers refuse to replace a running app and record partial installs for rollback. Rollback refuses to overwrite shortcuts or startup entries that were edited afterwards; restore the intended files from the printed backup location if that guard fires. Browser cookies from Fugi may remain after rollback; they do nothing without the app and can be removed separately.
+
+## Notifications
+
+With the window closed, the tray icon shows a notification when tracking stops for 15 seconds after it had been working, when the other PC stops answering for 30 seconds, when it is back, when an update is ready, and after an update. Turn them off under **Advanced › Notifications**.
