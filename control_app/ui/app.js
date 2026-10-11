@@ -1,6 +1,9 @@
 const el=id=>document.getElementById(id);let role;
 const show=value=>{el('result').textContent=typeof value==='string'?value:value?.ok===false?'Failed: '+value.message:JSON.stringify(value,null,2);};
-async function perform(fn){try{show(await fn());}catch(e){show(e.message);}}
+// Electron wraps an error from the app as "Error invoking remote method 'control:save': Error: …"; only the reason is for
+// the streamer.
+const reason=e=>String(e?.message??e).replace(/^Error invoking remote method '[^']*': (?:[A-Za-z]*Error: )?/,'');
+async function perform(fn){try{show(await fn());}catch(e){show(reason(e));}}
 
 // Tracking: one card at the top; the gaming PC gets the sender controls, the stream PC the receiver status.
 let editing=false;
@@ -22,7 +25,7 @@ function renderTracking(t){
   el('trackDetail').textContent=`${t.detail||''} ${t.packets?Number(t.packets).toLocaleString()+' packets applied.':''}`.trim();
  }
 }
-const tracking=(name,args)=>window.control.tracking(name,args).then(renderTracking).catch(e=>{el('trackDetail').textContent=e.message;});
+const tracking=(name,args)=>window.control.tracking(name,args).then(renderTracking).catch(e=>{el('trackDetail').textContent=reason(e);});
 el('trackToggle').onclick=()=>tracking(el('trackToggle').textContent==='Stop'?'stop':'start',{destination:el('destination').value.trim()});
 el('startOnLaunch').onchange=()=>tracking('startOnLaunch',{enabled:el('startOnLaunch').checked});
 const mouse=()=>tracking('mouse',{gameMode:el('gameMouse').checked,sensitivity:Number(el('sensitivity').value)});

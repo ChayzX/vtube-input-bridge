@@ -1,10 +1,10 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {readFile} from 'node:fs/promises';import vm from 'node:vm';
 // Runs the real settings window script against a minimal DOM and a mocked main process.
-async function window(config){
+async function window(config,overrides={}){
  const nodes={};const listeners={};let poll;const saves=[];
  const node=id=>nodes[id]??={id,value:'',checked:false,disabled:false,hidden:false,textContent:'',addEventListener:(type,fn)=>{listeners[id+':'+type]=fn;}};
  const control={get:async()=>({role:config.role,linkError:null,plugins:{tracking:{role:'receiver',state:'Receiving input'}},config:structuredClone(config),overlayUrl:'http://127.0.0.1:5058/overlay/x'}),
-  save:async c=>{saves.push(c);Object.assign(config,structuredClone(c));return {};},tracking:async()=>({})};
+  save:async c=>{saves.push(c);Object.assign(config,structuredClone(c));return {};},tracking:async()=>({}),...overrides};
  const context={document:{getElementById:node,querySelectorAll:()=>[]},window:{control,addEventListener:(type,fn)=>{listeners['window:'+type]=fn;}},setInterval:fn=>{poll=fn;},structuredClone,console};
  vm.runInNewContext(await readFile(new URL('../ui/app.js',import.meta.url),'utf8'),context);
  const settle=()=>new Promise(r=>setTimeout(r,10));await settle();
@@ -28,4 +28,8 @@ test('fields the user is editing survive a refresh; the rest follow the stored s
  assert.equal(w.node('obsUrl').value,'ws://127.0.0.1:4456');assert.equal(w.node('enabled').checked,false);assert.equal(w.node('spotifyEnabled').checked,false);
  await w.submit();const [saved]=w.saves;
  assert.equal(saved.obs.url,'ws://127.0.0.1:4456');assert.equal(saved.enabled,false,'an explicit untick is kept');assert.equal(saved.spotify.enabled,false);
+});
+test('a refused save shows the reason, not the IPC wrapper of Electron',async()=>{
+ const w=await window(stored(),{save:async()=>{throw new Error("Error invoking remote method 'control:save': Error: App API must use a loopback WebSocket");}});
+ await w.submit();assert.equal(w.node('result').textContent,'App API must use a loopback WebSocket');
 });
