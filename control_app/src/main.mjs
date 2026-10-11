@@ -1,5 +1,5 @@
-import {app,BrowserWindow,Tray,Menu,ipcMain,dialog,safeStorage,nativeImage} from 'electron';
-import {contextMenuTemplate} from './contextmenu.mjs';
+import {app,BrowserWindow,Tray,Menu,ipcMain,dialog,safeStorage,nativeImage,nativeTheme} from 'electron';
+import {contextMenuTemplate} from './contextmenu.mjs';import {trayHealth} from './health.mjs';import {trayIconPng,TRAY_SIZES} from './trayicon.mjs';
 import {readFile,writeFile,mkdir,rename,copyFile} from 'node:fs/promises';import {join,dirname} from 'node:path';import {fileURLToPath} from 'node:url';import {randomBytes,randomUUID,createHash,X509Certificate} from 'node:crypto';import selfsigned from 'selfsigned';
 import {SerialQueue} from './serial.mjs';import {Retry} from './retry.mjs';import {checkDeadline} from './deadline.mjs';
 import {defaults,upgradeConfig,validateConfig,validatePair} from './config.mjs';import {Dispatcher} from './commands.mjs';import {FrameStore} from './frames.mjs';import {createApi,createOverlay} from './server.mjs';import {requestPeer,forwardCommand} from './client.mjs';import {userError} from './errors.mjs';import {ReactiveRenderer,openFugiLogin} from './reactive.mjs';
@@ -73,8 +73,12 @@ function autoStartRenderer(){
 }
 const requireLink=()=>{if(linkError)throw new Error('Remote controls and reactives are unavailable: '+linkError);};
 
-function createWindow(){if(window&&!window.isDestroyed()){window.show();return;}
- window=new BrowserWindow({width:760,height:900,title:APP_NAME,webPreferences:{preload:join(here,'preload.cjs'),sandbox:true,nodeIntegration:false,contextIsolation:true}});
+// The window paints the theme's background before the page loads (no white flash) and has no menu bar.
+const windowBackground=()=>nativeTheme.shouldUseDarkColors?'#202020':'#f3f3f3';
+function createWindow(){if(window&&!window.isDestroyed()){window.show();window.focus();return;}
+ window=new BrowserWindow({width:1040,height:720,minWidth:760,minHeight:560,title:APP_NAME,icon:join(here,'..','ui','icon.ico'),show:false,backgroundColor:windowBackground(),autoHideMenuBar:true,
+  webPreferences:{preload:join(here,'preload.cjs'),sandbox:true,nodeIntegration:false,contextIsolation:true}});
+ window.removeMenu();window.once('ready-to-show',()=>window.show());
  window.webContents.setWindowOpenHandler(()=>({action:'deny'}));window.webContents.on('will-navigate',e=>e.preventDefault());
  window.webContents.on('context-menu',(_,params)=>{const items=contextMenuTemplate(params);if(items.length)Menu.buildFromTemplate(items).popup({window});});
  window.loadFile(join(here,'..','ui','index.html'));
@@ -93,22 +97,35 @@ function trackingSummary(){
  const state=t.role==='sender'?(t.connectionState||t.state):t.state;
  return t.role==='sender'?`Tracking: ${state||'Starting'}`+(t.running?` to ${t.destination}`:''):`Tracking: ${state||'Starting'}`;
 }
-let trayKey='';
+// The tray icon's colour follows the same verdict as its status line: green live-ready, amber needs attention, red
+// tracking or the PC link down, grey tracking paused.
+const trayIcons={};
+function trayIcon(level){
+ if(trayIcons[level])return trayIcons[level];
+ const image=nativeImage.createEmpty();
+ for(const [size,scaleFactor] of TRAY_SIZES)image.addRepresentation({scaleFactor,dataURL:'data:image/png;base64,'+trayIconPng(size,level).toString('base64')});
+ return trayIcons[level]=image;
+}
+let trayKey='',trayLevel='';
 function updateTray(){
  if(!tray)return;const t=host.status().tracking||{};const sender=t.role==='sender';
+ const health=trayHealth({tracking:t,linkError,bindError:bind.error,config,services:last});
+ if(health.level!==trayLevel){trayLevel=health.level;tray.setImage(trayIcon(health.level));}
  // Rebuild only on change: replacing the menu while it is open would close it under the streamer's cursor.
- const key=JSON.stringify([trackingSummary(),sender,t.running,!!linkError,!!config?.enabled,bind.error]);if(key===trayKey)return;trayKey=key;
- tray.setToolTip(`${APP_NAME} — ${trackingSummary().replace('Tracking: ','')}`.slice(0,127));
+ const key=JSON.stringify([health.line,health.tooltip,trackingSummary(),sender,t.running,!!linkError,!!config?.enabled,bind.error]);if(key===trayKey)return;trayKey=key;
+ tray.setToolTip(health.tooltip);
  tray.setContextMenu(Menu.buildFromTemplate([
+  {label:health.line,enabled:false},
   {label:trackingSummary(),enabled:false},
   ...(sender?[{label:t.running?'Stop sending':'Start sending',click:()=>host.ui('tracking',t.running?'stop':'start',{}).catch(e=>dialog.showErrorBox('Tracking',e.message))}]:[]),
   {type:'separator'},
   {label:`Open ${APP_NAME}`,click:createWindow},
-  {label:'Disable Stream Deck controls and reactives',enabled:!linkError&&!!config?.enabled,click:()=>transactions.run(async()=>{config.enabled=false;await saveProtected(settingsFile,config);}).then(()=>bind.run(),()=>dialog.showErrorBox('Could not save','Exit the app to stop controls immediately.'))},
+  {label:'Pause remote controls',enabled:!linkError&&!!config?.enabled,click:()=>transactions.run(async()=>{config.enabled=false;await saveProtected(settingsFile,config);}).then(()=>bind.run(),()=>dialog.showErrorBox('Could not save','Exit the app to stop controls immediately.'))},
   {label:`Exit ${APP_NAME}`,click:()=>{quit();}}
  ]));
 }
 
+Menu.setApplicationMenu(null);
 if(!app.requestSingleInstanceLock()){app.quit();}else{
  app.on('second-instance',createWindow);app.on('window-all-closed',()=>{});
  app.whenReady().then(async()=>{
@@ -127,7 +144,7 @@ if(!app.requestSingleInstanceLock()){app.quit();}else{
    clearPeerFrame:()=>requestPeer(config.peer,'DELETE','/frame'),stopped:()=>rendering.cancel()}));
   await host.start('controls');await host.start('reactives');if(!linkError)await bind.run();
 
-  ipc('control:get',()=>({role,linkError,bindError:bind.error,plugins:host.status(),status:status(),
+  ipc('control:get',()=>({role,version:app.getVersion(),linkError,bindError:bind.error,plugins:host.status(),status:status(),
    config:config&&{...config,peer:config.peer?{host:config.peer.host,port:config.peer.port,pin:config.peer.pin}:null,obs:{...config.obs,password:config.obs.password?'••••••••':''},vts:{...config.vts,token:undefined}},
    overlayUrl:identity?`http://127.0.0.1:5058/overlay/${identity.overlayToken}`:''}));
   // The role is fixed at install, and show/hide belongs to the Stream Deck; a save changes neither.
@@ -140,8 +157,9 @@ if(!app.requestSingleInstanceLock()){app.quit();}else{
   ipc('control:command',c=>{requireLink();return dispatcher.execute({id:randomUUID(),expiresAt:Date.now()+10000,target:c.target,action:c.action,args:c.args||{}});});
   ipc('tracking:call',async(name,args)=>{const result=await host.ui('tracking',name,args);updateTray();return result;});
 
-  tray=new Tray(nativeImage.createFromPath(join(here,'..','ui','icon.ico')));tray.on('double-click',createWindow);
+  tray=new Tray(trayIcon('warn'));trayLevel='warn';tray.on('double-click',createWindow);
   updateTray();setInterval(updateTray,2000);
+  nativeTheme.on('updated',()=>{if(window&&!window.isDestroyed())window.setBackgroundColor(windowBackground());});
   // Sign-in launches pass --background so the app starts in the tray.
   if(!process.argv.includes('--background'))createWindow();
  }).catch(async e=>{await dialog.showMessageBox({type:'error',title:`${APP_NAME} could not start`,message:e?.message||String(e)});await quit();});
