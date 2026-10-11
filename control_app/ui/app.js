@@ -18,6 +18,18 @@ function ago(at){const s=Math.max(0,Math.round((Date.now()-at)/1000));if(s<10)re
 // Errors from the main process arrive wrapped ("Error invoking remote method 'control:save': Error: …").
 const cleanError=e=>String(e?.message||e||'Something went wrong').replace(/^Error invoking remote method '[^']*': (?:\w*Error: )?/,'');
 const names=()=>role==='canada'?{self:'Streaming PC',other:'Gaming PC'}:{self:'Gaming PC',other:'Streaming PC'};
+// Each PC by its Windows computer name, role and address ("CHASEBOT · Gaming PC · 10.0.0.112"). The other PC's name
+// comes over the PC link; an older version sends none, and then its role and address stand in.
+const pcLabel=pc=>[pc.name,pc.role,pc.ip].filter(Boolean).join(' · ');
+const shortName=pc=>pc.name||pc.role;
+const theOther=pc=>`${pc.name?pc.name+', ':''}the ${pc.role}${pc.ip?` (${pc.ip})`:''}`;
+function pcs(){
+ const n=names(),c=latest?.config,t=latestTracking;
+ const self={name:latest?.hostname||'',role:n.self,ip:c?.ownIp||''};
+ const other={name:peerStatus?.hostname||latest?.peerName||'',role:n.other,ip:c?.peer?.host||(role==='pantry'?t?.destination:t?.source)||''};
+ return {self,other,gaming:role==='canada'?other:self,streaming:role==='canada'?self:other};
+}
+function setWhere(node,text,title){setText(node,text);if(node&&node.getAttribute?.('title')!==(title||text))node.setAttribute?.('title',title||text);}
 
 let toastTimer;
 function toast(message,kind=''){
@@ -152,7 +164,7 @@ function renderControls(r,force){
  if(r.config){
   fill(r.config,force);
   const n=names();
-  setText(el('peer'),r.config.peer?`Paired with the ${n.other} (${r.config.peer.host})`:'Not paired yet');
+  setText(el('peer'),r.config.peer?`Paired with ${theOther(pcs().other)}`:'Not paired yet');
   setBadge(el('peerBadge'),r.config.peer?'ok':'setup',r.config.peer?'Paired':'Not paired');
   setText(el('enabledHelp'),r.config.peer?'Lets Stream Deck keys control apps on this PC, and shows reactives. Turning it off is the same as Pause remote controls in the tray.':'Turns on by itself when you import the other PC\'s pairing file.');
   if(el('overlay').value!==r.overlayUrl)el('overlay').value=r.overlayUrl||'';
@@ -173,8 +185,12 @@ function applyRole(){
  setText(el('linkLead'),`The encrypted connection to the ${n.other}. It lets the Stream Deck reach apps on both PCs.`);
  setText(el('homeLead'),`Live status of tracking, the link to the ${n.other} and your stream apps.`);
  setText(el('deckHelp'),role==='canada'?'The Stream Deck is plugged into the Gaming PC. Its keys reach apps on this PC through the PC link, so keep the apps you use turned on under Apps.':'In the Stream Deck app, drag VTube Control › Bridge command onto a key, then choose the PC and the action. Scene and hotkey lists fill in by themselves when you open a key\'s settings.');
- const target=el('target');
- for(const option of target?.options||[])setText(option,option.value==='local'?`This PC (${n.self})`:`The ${n.other}`);
+ nameTargets();
+}
+// The Stream Deck page's "Send to" list names both PCs.
+function nameTargets(){
+ const p=pcs();
+ for(const option of el('target')?.options||[])setText(option,option.value==='local'?`This PC (${pcLabel(p.self)})`:p.other.name?pcLabel(p.other):`The ${p.other.role}${p.other.ip?' · '+p.other.ip:''}`);
 }
 
 // ---------- Apps: status, tests and the other PC ----------
@@ -193,9 +209,9 @@ function describe(id,data){
  return 'It answered.';
 }
 function appView(id,r){
- const app=APPS[id];const n=names();
+ const app=APPS[id];const n=names();const p=pcs();
  const localOn=!!r.config?.[id]?.enabled,peerOn=!!peerStatus?.plugins?.controls?.[id];
- const where=localOn&&peerOn?'Both PCs':localOn?`${n.self} (this PC)`:peerOn?`${n.other}`:'Not turned on';
+ const where=localOn&&peerOn?`Both PCs: ${shortName(p.self)} and ${shortName(p.other)}`:localOn?`${pcLabel(p.self)} (this PC)`:peerOn?pcLabel(p.other):'Not turned on';
  const target=localOn?'local':peerOn?'peer':null;const place=target==='peer'?n.other:n.self;
  const base={id,name:app.name,settings:app.settings,where,target,localOn,peerOn,fix:app.fix(place)};
  if(r.linkError&&!localOn)return {...base,level:'off',badge:'Unavailable',unavailable:true,detail:'Needs the PC link, which could not start.'};
@@ -249,7 +265,7 @@ function linkView(r){
  if(!c.enabled)return {level:'warn',badge:'Paused',detail:'Remote controls are paused on this PC. Turn them on under PC link.'};
  if(r.bindError)return {level:'warn',badge:'Retrying',detail:sentence(r.bindError),fix:'Check that This PC\'s address under PC link is this PC\'s current address.'};
  if(peerError)return {level:'warn',badge:'Not answering',detail:sentence(peerError),retry:true,fix:`Check that VTube Input Bridge is running on the ${n.other} with remote controls on, that both PCs are on the same network, and that Windows Firewall there allows VTube Input Bridge on private networks.`};
- return {level:'ok',badge:'Paired',detail:`Paired with the ${n.other} (${c.peer.host}).${peerStatus?' It is answering.':''}`};
+ return {level:'ok',badge:'Paired',detail:`Paired with ${theOther(pcs().other)}.${peerStatus?' It is answering.':''}`};
 }
 function reactivesView(r){
  const c=r.config,p=r.plugins?.reactives||{};
@@ -276,7 +292,7 @@ const icons={ok:'#i-check',warn:'#i-warn',err:'#i-error',off:'#i-pause',setup:'#
 function renderCard(id,v,{test,go}={}){
  const card=el('card-'+id);if(!card)return;
  setClass(card,'card conn'+(v.level==='warn'?' attention':v.level==='err'?' error':v.level==='off'?' off':''));
- if(v.where!==undefined)setText(el(id+'-where'),v.where);
+ if(v.where!==undefined)setWhere(el(id+'-where'),v.where,v.whereTitle);
  setBadge(el(id+'-badge'),v.level,v.badge);setText(el(id+'-detail'),v.detail);
  const fix=el(id+'-fix'),howto=el(id+'-howto');const canFix=!!v.fix&&(v.level==='warn'||v.level==='err');
  setText(fix,v.fix||'');setHidden(howto,!canFix);
@@ -291,12 +307,13 @@ function renderStatus(r){
  const lv=linkView(r),rv=reactivesView(r);
  const apps=Object.fromEntries(Object.keys(APPS).map(id=>[id,appView(id,r)]));
 
- renderCard('tracking',{...tv,where:'Gaming PC → Streaming PC'});
+ const p=pcs();const flow={where:`${shortName(p.gaming)} → ${shortName(p.streaming)}`,whereTitle:`${pcLabel(p.gaming)} → ${pcLabel(p.streaming)}`};
+ renderCard('tracking',{...tv,...flow});
  const action=el('tracking-action');
  if(action){setHidden(action,role!=='pantry');setText(action,trackRunning?'Stop sending':'Start sending');}
  renderCard('link',lv);setHidden(el('link-test'),!lv.retry);setText(el('link-go'),r.linkError?'PC link':c?.peer?'Manage pairing':'Pair PCs');
  for(const id of Object.keys(APPS)){renderCard(id,apps[id],{test:el(id+'-test'),go:el(id+'-go')});setBadge(el(id+'-badge2'),apps[id].level,apps[id].localOn&&apps[id].level!=='off'?apps[id].badge:'');}
- renderCard('reactives',{...rv,where:'Gaming PC → Streaming PC'});
+ renderCard('reactives',{...rv,...flow});
 
  // The hero answers one question: can I go live? Worst problem first.
  const attention=Object.values(apps).filter(v=>v.level==='warn').map(v=>v.name);if(rv.level==='warn')attention.push('Reactives');
@@ -318,8 +335,12 @@ function renderStatus(r){
  // The link diagram: tracking flows from the Gaming PC to the Streaming PC.
  const wire={ok:'Connected',warn:'Waiting',err:'Not connected',off:'Paused'}[tv.level]||'';
  setClass(el('wire'),'wire '+tv.level);setText(el('wireText'),wire);
- const other=c?.peer?.host||(role==='pantry'?t?.destination:t?.source)||'';
- setText(el('nodeGaming'),role==='pantry'?'this PC':other);setText(el('nodeStreaming'),role==='canada'?'this PC':other);
+ // Each end shows the PC's computer name (and which one is this PC), with its role and address underneath.
+ for(const [id,pc,mine] of [['Gaming',p.gaming,role==='pantry'],['Streaming',p.streaming,role==='canada']]){
+  setText(el(`node${id}Name`),shortName(pc)+(mine?' (this PC)':''));
+  setText(el('node'+id),[pc.name?pc.role:'',pc.ip].filter(Boolean).join(' · '));
+ }
+ nameTargets();
 
  // Nav: a dot where something needs attention.
  const navBadge=(id,level,text,label)=>{const b=el('nav-'+id);if(!b)return;const show=level==='warn'||level==='err';setBadge(b,level,show?text:'');if(show)b.setAttribute('aria-label',label);};
@@ -328,9 +349,10 @@ function renderStatus(r){
  navBadge('reactives',rv.level,'!','Reactives need attention');
 
  // Sidebar PC card and Advanced.
- setText(el('pcAddress'),c?.ownIp?`${c.ownIp}`:'');setText(el('pcVersion'),r.version?`Version ${r.version}`:'');
+ setText(el('pcRole'),shortName(p.self));setText(el('pcAddress'),[p.self.name?p.self.role:'',p.self.ip].filter(Boolean).join(' · '));setText(el('pcVersion'),r.version?`Version ${r.version}`:'');
+ setText(el('factName'),r.hostname||'—');
  setText(el('factRole'),role==='canada'?'Streaming PC: receives tracking and runs VTube Studio':'Gaming PC: sends tracking and has the Stream Deck');
- setText(el('factAddress'),c?.ownIp||'—');setText(el('factPeer'),c?.peer?`${n.other} (${c.peer.host})`:'Not paired');setText(el('factVersion'),r.version||'—');
+ setText(el('factAddress'),c?.ownIp||'—');setText(el('factPeer'),c?.peer?pcLabel(p.other):'Not paired');setText(el('factVersion'),r.version||'—');
  const feature=(id,plugin,detail)=>{const running=!!plugin?.started;setBadge(el(`feat-${id}-badge`),running?'ok':'err',plugin?running?'Running':'Not running':'');setText(el('feat-'+id),plugin?.error?sentence(plugin.error):detail);};
  feature('tracking',r.plugins?.tracking,tv.title);
  const using=Object.keys(APPS).filter(id=>c?.[id]?.enabled).map(id=>APPS[id].name);
@@ -376,7 +398,7 @@ for(const [id,fn] of [['export','exportPair'],['import','importPair'],['login','
   if(latest)window.control.get().then(r=>renderControls(r)).catch(()=>{});
  });
 el('copyOverlay').onclick=()=>copy(el('overlay').value,'Web Item URL copied.',el('overlay'));
-el('copyStatus').onclick=()=>{const r=latest||{};copy(JSON.stringify({role:r.role,version:r.version,linkError:r.linkError,bindError:r.bindError,plugins:r.plugins,services:r.status?.services,peerError},null,2),'Status copied. Paste it into a message to get help.');};
+el('copyStatus').onclick=()=>{const r=latest||{};copy(JSON.stringify({role:r.role,hostname:r.hostname,peerName:peerStatus?.hostname||r.peerName,version:r.version,linkError:r.linkError,bindError:r.bindError,plugins:r.plugins,services:r.status?.services,peerError},null,2),'Status copied. Paste it into a message to get help.');};
 async function copy(text,done,field){
  try{await navigator.clipboard.writeText(text);toast(done);}
  catch{if(field){field.select();document.execCommand('copy');toast(done);}else toast('Could not copy.','err');}

@@ -3,6 +3,7 @@ import {contextMenuTemplate} from './contextmenu.mjs';import {trayHealth} from '
 import {readFile,writeFile,mkdir,rename,copyFile} from 'node:fs/promises';import {join,dirname} from 'node:path';import {fileURLToPath} from 'node:url';import {randomBytes,randomUUID,createHash,X509Certificate} from 'node:crypto';import selfsigned from 'selfsigned';
 import {SerialQueue} from './serial.mjs';import {Retry} from './retry.mjs';import {checkDeadline} from './deadline.mjs';
 import {defaults,upgradeConfig,validateConfig,validateSave,parsePairingFile} from './config.mjs';import {Dispatcher} from './commands.mjs';import {FrameStore} from './frames.mjs';import {createApi,createOverlay} from './server.mjs';import {requestPeer,forwardCommand} from './client.mjs';import {userError} from './errors.mjs';import {ReactiveRenderer,openFugiLogin} from './reactive.mjs';
+import {hostname as osHostname} from 'node:os';import {cleanHostname,pcLabel,peerHostname} from './names.mjs';
 import {PluginHost} from './plugins/host.mjs';import {TrackingSender,TrackingReceiver} from './plugins/tracking.mjs';import {createControlsPlugin} from './plugins/controls.mjs';import {createReactivesPlugin} from './plugins/reactives.mjs';
 
 // One app per PC. Features are plugins (plugins/*.mjs): tracking, Stream Deck controls and reactives. The core here
@@ -11,6 +12,8 @@ import {PluginHost} from './plugins/host.mjs';import {TrackingSender,TrackingRec
 const APP_NAME='VTube Input Bridge';
 const here=dirname(fileURLToPath(import.meta.url));const dir=join(app.getPath('appData'),'VTubeControl');app.setPath('userData',dir);
 let config=null,identity=null,linkError='Starting',window,tray,quitting=false,shutdownPromise=null,servers=[],last={};
+// This PC's Windows computer name, and the other PC's as it last reported it over the link.
+const hostname=cleanHostname(osHostname());let peerName='';
 const frames=new FrameStore();const hex=()=>randomBytes(32).toString('hex');
 const renderer=new ReactiveRenderer(async png=>{if(!config?.enabled||!config.peer)throw Error('Disabled');const r=await requestPeer(config.peer,'PUT','/frame',png);if(!r.ok)throw Error('Upload rejected');});
 const transactions=new SerialQueue();
@@ -27,10 +30,10 @@ async function resolveRole(){
 }
 
 const host=new PluginHost();
-const status=()=>({enabled:!!config?.enabled,role:config?.role,peer:config?.peer?.host||'Not paired',services:last,reactive:renderer.state,frameFresh:!!frames.get(),linkError,bindError:bind.error,plugins:host.status()});
+const status=()=>({hostname,enabled:!!config?.enabled,role:config?.role,peer:config?.peer?.host||'Not paired',services:last,reactive:renderer.state,frameFresh:!!frames.get(),linkError,bindError:bind.error,plugins:host.status()});
 async function run(c){
  if(!config?.enabled)throw userError('Remote controls are paused on this PC. Turn on "Remote controls" under PC link and save.','disabled');
- if(c.target==='peer'){if(!config.peer)throw userError('This PC is not paired with the other PC yet. Pair them under PC link first.','not_paired');return forwardCommand(config.peer,c);}
+ if(c.target==='peer'){if(!config.peer)throw userError('This PC is not paired with the other PC yet. Pair them under PC link first.','not_paired');const result=await forwardCommand(config.peer,c);if(c.action==='bridge.status')notePeer(result);return result;}
  if(c.action==='bridge.status')return status();
  const deadline={expiresAt:c.expiresAt,assertActive:()=>{if(!config.enabled)throw userError("Remote controls were paused while this action was waiting.","disabled");}};checkDeadline(deadline);
  const service=c.action.split('.')[0];
@@ -38,6 +41,15 @@ async function run(c){
  catch(e){last[service]={ok:false,at:Date.now()};throw e;}
 }
 const dispatcher=new Dispatcher(run);
+// The other PC's computer name comes with its status. An older version does not send one; the name from its pairing
+// file (if any) is shown then, else just its role and address.
+function notePeer(data){const next=peerHostname(data,peerName,'');if(next!==peerName){peerName=next;updateTray();}}
+const currentPeerName=()=>peerHostname(null,peerName,config?.peer?.name);
+// Asked once the link is up and then every 5 minutes, so the tray can name the other PC with the window closed.
+async function refreshPeerName(){
+ if(linkError||!config?.enabled||!config.peer||bind.error)return;
+ try{notePeer(await forwardCommand(config.peer,{id:randomUUID(),expiresAt:Date.now()+5000,target:'local',action:'bridge.status',args:{}}));}catch{}
+}
 async function closeServers(){for(const s of servers){s.closeAllConnections();await new Promise(r=>s.close(r));}servers=[];}
 async function startServers(){
  await closeServers();renderer.stop();frames.clear();last={};
@@ -52,7 +64,7 @@ async function startServers(){
 }
 // At sign-in the network may not have given this PC its address yet, so a failed bind is retried with backoff; it never
 // turns controls off. Each later restart of the servers (save, pairing, tray) goes through here too.
-const bind=new Retry(()=>transactions.run(async()=>{await startServers();autoStartRenderer();}),{onChange:()=>updateTray()});
+const bind=new Retry(()=>transactions.run(async()=>{await startServers();autoStartRenderer();}),{onChange:error=>{updateTray();if(!error)void refreshPeerName();}});
 // Loads settings and identity and opens the secure link. A failure here disables only controls and reactives.
 async function startLink(role){
  if(!safeStorage.isEncryptionAvailable()||safeStorage.getSelectedStorageBackend?.()==='basic_text')throw Error('Secure credential storage unavailable');
@@ -106,15 +118,17 @@ function trayIcon(level){
  for(const [size,scaleFactor] of TRAY_SIZES)image.addRepresentation({scaleFactor,dataURL:'data:image/png;base64,'+trayIconPng(size,level).toString('base64')});
  return trayIcons[level]=image;
 }
-let trayKey='',trayLevel='';
+let trayKey='',trayLevel='',ownRole='pantry';
 function updateTray(){
  if(!tray)return;const t=host.status().tracking||{};const sender=t.role==='sender';
- const health=trayHealth({tracking:t,linkError,bindError:bind.error,config,services:last});
+ const self=pcLabel({hostname,role:config?.role??ownRole,ip:config?.ownIp});
+ const health=trayHealth({tracking:t,linkError,bindError:bind.error,config,services:last,self,peer:config?.peer?currentPeerName():''});
  if(health.level!==trayLevel){trayLevel=health.level;tray.setImage(trayIcon(health.level));}
  // Rebuild only on change: replacing the menu while it is open would close it under the streamer's cursor.
- const key=JSON.stringify([health.line,health.tooltip,trackingSummary(),sender,t.running,!!linkError,!!config?.enabled,bind.error]);if(key===trayKey)return;trayKey=key;
+const key=JSON.stringify([self,health.line,health.tooltip,trackingSummary(),sender,t.running,!!linkError,!!config?.enabled,bind.error]);if(key===trayKey)return;trayKey=key;
  tray.setToolTip(health.tooltip);
  tray.setContextMenu(Menu.buildFromTemplate([
+  {label:self,enabled:false},
   {label:health.line,enabled:false},
   {label:trackingSummary(),enabled:false},
   ...(sender?[{label:t.running?'Stop sending':'Start sending',click:()=>host.ui('tracking',t.running?'stop':'start',{}).catch(e=>dialog.showErrorBox('Tracking',e.message))}]:[]),
@@ -129,7 +143,7 @@ Menu.setApplicationMenu(null);
 if(!app.requestSingleInstanceLock()){app.quit();}else{
  app.on('second-instance',createWindow);app.on('window-all-closed',()=>{});
  app.whenReady().then(async()=>{
-  const role=await resolveRole();
+  const role=await resolveRole();ownRole=role;
   // 1. Tracking first: it needs nothing else from this app.
   host.add(role==='pantry'
    ?new TrackingSender({exe:join(here,'..','tracking','VTubeInputBridge.exe'),settingsFile:join(dir,'tracking.json')})
@@ -144,13 +158,13 @@ if(!app.requestSingleInstanceLock()){app.quit();}else{
    clearPeerFrame:()=>requestPeer(config.peer,'DELETE','/frame'),stopped:()=>rendering.cancel()}));
   await host.start('controls');await host.start('reactives');if(!linkError)await bind.run();
 
-  ipc('control:get',()=>({role,version:app.getVersion(),linkError,bindError:bind.error,plugins:host.status(),status:status(),
-   config:config&&{...config,peer:config.peer?{host:config.peer.host,port:config.peer.port,pin:config.peer.pin}:null,obs:{...config.obs,password:config.obs.password?'••••••••':''},vts:{...config.vts,token:undefined}},
+  ipc('control:get',()=>({role,hostname,peerName:config?.peer?currentPeerName():'',version:app.getVersion(),linkError,bindError:bind.error,plugins:host.status(),status:status(),
+   config:config&&{...config,peer:config.peer?{host:config.peer.host,port:config.peer.port,pin:config.peer.pin,name:config.peer.name}:null,obs:{...config.obs,password:config.obs.password?'••••••••':''},vts:{...config.vts,token:undefined}},
    overlayUrl:identity?`http://127.0.0.1:5058/overlay/${identity.overlayToken}`:''}));
   // The role is fixed at install, and show/hide belongs to the Stream Deck; a save changes neither.
   ipc('control:save',value=>{requireLink();return transactions.run(async()=>{const next={...value,role:config.role,peer:config.peer,obs:{...value.obs,password:value.obs.password==='••••••••'?config.obs.password:value.obs.password},vts:{...value.vts,token:config.vts.token},reactive:{...value.reactive,visible:config.reactive.visible}};validateSave(next);config=next;await saveProtected(settingsFile,config);}).then(async()=>{await bind.run();return status();});});
-  ipc('control:export',async()=>{requireLink();const chosen=await dialog.showSaveDialog(window,{title:'Export pairing file — contains a connection credential',defaultPath:`${config.role==='canada'?'streaming':'gaming'}-pc-pairing.json`});if(chosen.canceled)return;const pin=createHash('sha256').update(new X509Certificate(identity.cert.cert).raw).digest('hex');await writeFile(chosen.filePath,JSON.stringify({host:config.ownIp,port:5056,pin,token:identity.networkToken},null,2),{mode:0o600});return 'Exported. Transfer securely, import on the other PC, then delete the transfer copy.';});
-  ipc('control:import',async()=>{requireLink();const chosen=await dialog.showOpenDialog(window,{title:'Import the OTHER PC’s pairing file',properties:['openFile'],filters:[{name:'Pairing',extensions:['json']}]});if(chosen.canceled)return;const peer=parsePairingFile(await readFile(chosen.filePaths[0]));return transactions.run(async()=>{const first=!config.peer;validateConfig({...config,peer});config.peer=peer;if(first)config.enabled=true;await saveProtected(settingsFile,config);return first;}).then(async first=>{await bind.run();return (first?'Paired. Remote controls are on.':'Paired')+(bind.error?' '+bind.error:'');});});
+  ipc('control:export',async()=>{requireLink();const chosen=await dialog.showSaveDialog(window,{title:'Export pairing file — contains a connection credential',defaultPath:`${config.role==='canada'?'streaming':'gaming'}-pc-pairing.json`});if(chosen.canceled)return;const pin=createHash('sha256').update(new X509Certificate(identity.cert.cert).raw).digest('hex');await writeFile(chosen.filePath,JSON.stringify({host:config.ownIp,port:5056,pin,token:identity.networkToken,name:hostname},null,2),{mode:0o600});return 'Exported. Transfer securely, import on the other PC, then delete the transfer copy.';});
+  ipc('control:import',async()=>{requireLink();const chosen=await dialog.showOpenDialog(window,{title:'Import the OTHER PC’s pairing file',properties:['openFile'],filters:[{name:'Pairing',extensions:['json']}]});if(chosen.canceled)return;const peer=parsePairingFile(await readFile(chosen.filePaths[0]));return transactions.run(async()=>{const first=!config.peer;validateConfig({...config,peer});config.peer=peer;peerName='';if(first)config.enabled=true;await saveProtected(settingsFile,config);return first;}).then(async first=>{await bind.run();return (first?'Paired. Remote controls are on.':'Paired')+(bind.error?' '+bind.error:'');});});
   ipc('control:login',()=>{requireLink();if(config.role!=='pantry')throw Error('Sign in to Fugi on the Gaming PC, where reactives are rendered');openFugiLogin();return 'Fugi sign-in window opened';});
   ipc('control:reactive-start',async()=>{requireLink();return dispatcher.execute({id:randomUUID(),expiresAt:Date.now()+10000,target:'local',action:'reactive.start',args:{}});});
   ipc('control:reactive-stop',async()=>{requireLink();rendering.cancel();return dispatcher.execute({id:randomUUID(),expiresAt:Date.now()+10000,target:'local',action:'reactive.stop',args:{}});});
@@ -158,7 +172,7 @@ if(!app.requestSingleInstanceLock()){app.quit();}else{
   ipc('tracking:call',async(name,args)=>{const result=await host.ui('tracking',name,args);updateTray();return result;});
 
   tray=new Tray(trayIcon('warn'));trayLevel='warn';tray.on('double-click',createWindow);
-  updateTray();setInterval(updateTray,2000);
+  updateTray();setInterval(updateTray,2000);setInterval(()=>void refreshPeerName(),300000);
   nativeTheme.on('updated',()=>{if(window&&!window.isDestroyed())window.setBackgroundColor(windowBackground());});
   // Sign-in launches pass --background so the app starts in the tray.
   if(!process.argv.includes('--background'))createWindow();

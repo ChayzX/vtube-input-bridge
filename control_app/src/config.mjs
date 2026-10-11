@@ -1,4 +1,4 @@
-import {isIP} from 'node:net';import {loopbackWs} from './obs.mjs';import {validateFugiUrl,validateSourceUrl} from './frames.mjs';
+import {isIP} from 'node:net';import {cleanHostname} from './names.mjs';import {loopbackWs} from './obs.mjs';import {validateFugiUrl,validateSourceUrl} from './frames.mjs';
 export function privateIp(s){if(isIP(s)!==4)return false;const [a,b]=s.split('.').map(Number);return a===10||(a===172&&b>=16&&b<=31)||(a===192&&b===168);}
 // Every feature starts on. Controls themselves switch on when the PCs are paired (they need the other PC), and Fugi
 // rendering only belongs on the gaming PC, where Discord runs.
@@ -10,7 +10,8 @@ export function upgradeConfig(c,role){
  if(role&&c.role!==role)c={...c,role,reactive:c.reactive&&{...c.reactive,enabled:role==='pantry'&&!!c.reactive.enabled}};
  return c;
 }
-export function validatePair(p){if(!p||!privateIp(p.host)||p.port!==5056||!/^[a-f0-9]{64}$/.test(p.pin)||!/^[a-f0-9]{64}$/.test(p.token))throw new Error('Invalid pairing file: private IPv4, port 5056, token and certificate pin required');return {host:p.host,port:p.port,pin:p.pin,token:p.token};}
+// `name` (the PC's computer name) is optional: pairing files from older versions have none, and a bad one is dropped.
+export function validatePair(p){if(!p||!privateIp(p.host)||p.port!==5056||!/^[a-f0-9]{64}$/.test(p.pin)||!/^[a-f0-9]{64}$/.test(p.token))throw new Error('Invalid pairing file: private IPv4, port 5056, token and certificate pin required');const name=cleanHostname(p.name);return {host:p.host,port:p.port,pin:p.pin,token:p.token,...(name?{name}:{})};}
 // Reads an imported pairing file (bytes as read from disk).
 export function parsePairingFile(bytes){
  if(bytes.length>8192)throw new Error('Pairing file too large');

@@ -76,7 +76,7 @@ svg.i{width:16px;height:16px;flex:none;stroke:currentColor;fill:none;stroke-widt
 .nav a .badge{margin-left:auto}
 .nav .spacer{flex:1}
 .nav .pc{margin:var(--s2) var(--s1) 0;padding:var(--s3);border-radius:var(--r-md);background:var(--card);border:1px solid var(--card-border);font-size:var(--t-caption);line-height:16px;color:var(--text-2);display:flex;flex-direction:column}
-.nav .pc strong{color:var(--text);font-size:var(--t-body);line-height:20px;font-weight:600}
+.nav .pc strong{color:var(--text);font-size:var(--t-body);line-height:20px;font-weight:600;overflow-wrap:anywhere}
 main{scrollbar-width:thin;scrollbar-gutter:stable;position:relative;background:var(--bg-content);border-top-left-radius:var(--r-md);border-top:1px solid var(--card-border);border-left:1px solid var(--card-border);overflow:auto;padding:var(--s8) var(--pad-x) 0;display:flex;flex-direction:column}
 main:focus{outline:none}
 .page{max-width:1000px;width:100%;padding-bottom:var(--s10)}
@@ -126,8 +126,11 @@ h2.section{font-size:var(--t-body);font-weight:600;margin:var(--s8) 0 var(--s3)}
 .hero h2{font:600 var(--t-subtitle)/28px var(--font-display)}
 .hero p{color:var(--text-2);margin-top:2px}
 .link{display:flex;align-items:center;gap:var(--s3);margin-top:var(--s4);font-size:var(--t-caption);color:var(--text-2)}
-.link .node{white-space:nowrap;display:flex;align-items:center;gap:6px;padding:6px var(--s3);border-radius:var(--r-md);background:var(--bg-content);border:1px solid var(--card-border);color:var(--text)}
-.link .node b{font-weight:600}
+.link .node{white-space:nowrap;min-width:0;display:flex;align-items:center;gap:6px;padding:6px var(--s3);border-radius:var(--r-md);background:var(--bg-content);border:1px solid var(--card-border);color:var(--text)}
+.link .node b{font-weight:600;color:var(--text)}
+.link .node-text{display:flex;flex-direction:column;line-height:16px;min-width:0}
+.link .node-text span{overflow:hidden;text-overflow:ellipsis}
+.link .node-text b{overflow:hidden;text-overflow:ellipsis}
 .link .node span{color:var(--text-2)}
 .link .wire{--wire:var(--text-3);flex:1 1 120px;max-width:160px;min-width:76px;height:2px;background:linear-gradient(90deg,var(--wire) 50%,transparent 0) 0 0/10px 2px repeat-x;position:relative;margin-top:14px}
 .link .wire span{position:absolute;left:50%;top:-18px;transform:translateX(-50%);white-space:nowrap;color:var(--wire);font-weight:600}
@@ -141,7 +144,7 @@ h2.section{font-size:var(--t-body);font-weight:600;margin:var(--s8) 0 var(--s3)}
 .conn .ic svg{width:18px;height:18px}
 .conn header>div{flex:1;min-width:0}
 .conn h3{font-size:var(--t-body);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.conn .where{font-size:var(--t-caption);color:var(--text-3);line-height:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.conn .where{font-size:var(--t-caption);color:var(--text-3);line-height:16px;overflow-wrap:anywhere}
 .conn .detail{color:var(--text-2);font-size:var(--t-caption);line-height:16px;flex:1;overflow-wrap:anywhere}
 .conn .fix{font-size:var(--t-caption);line-height:16px;padding:var(--s2) var(--s3);border-radius:var(--r-sm);background:var(--bg-content);border:1px solid var(--card-border);color:var(--text)}
 .conn footer{display:flex;flex-wrap:wrap;gap:var(--s2);margin:0 calc(-1 * var(--s1)) calc(-1 * var(--s1))}

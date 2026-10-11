@@ -31,13 +31,15 @@ export function linkHealth({linkError,bindError,config}){
  return {level:'ok',line:'PCs paired',short:'Paired'};
 }
 
-export function trayHealth({tracking,linkError,bindError,config,services={}}){
+export function trayHealth({tracking,linkError,bindError,config,services={},self='',peer=''}){
  const parts=[trackingHealth(tracking),linkHealth({linkError,bindError,config})];
  // Only an app this PC is set to use counts: a failed press on an app that was since turned off is history.
  for(const [id,name] of Object.entries(apps))if(config?.[id]?.enabled&&services[id]&&services[id].ok===false)parts.push({level:'warn',line:`${name} isn't answering`});
  const worst=parts.reduce((a,b)=>rank[b.level]>rank[a.level]?b:a);
  const attention=parts.filter(p=>p.level==='warn'||p.level==='err').length;
  const line=worst.level==='ok'?'Live-ready':worst.line+(attention>1?` (+${attention-1} more)`:'');
- const tooltip=`VTube Input Bridge — ${line}\nTracking: ${parts[0].short} · PC link: ${parts[1].short}`.slice(0,127);
+ // `self` names this PC ("CHASEBOT · Gaming PC · 10.0.0.112"), `peer` the other PC's computer name when known.
+ const link=parts[1].short+(peer&&parts[1].level==='ok'?` with ${peer}`:'');
+ const tooltip=`VTube Input Bridge — ${line}${self?'\n'+self:''}\nTracking: ${parts[0].short} · PC link: ${link}`.slice(0,127);
  return {level:worst.level,line,tooltip};
 }

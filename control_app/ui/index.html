@@ -67,9 +67,9 @@
           <h2 id="heroTitle" aria-live="polite">Checking your setup…</h2>
           <p id="heroText"></p>
           <div class="link" id="linkDiagram">
-            <span class="node"><svg class="i" aria-hidden="true"><use href="#i-pc"/></svg><b>Gaming PC</b><span id="nodeGaming"></span></span>
+            <span class="node"><svg class="i" aria-hidden="true"><use href="#i-pc"/></svg><span class="node-text"><b id="nodeGamingName">Gaming PC</b><span id="nodeGaming"></span></span></span>
             <span class="wire" id="wire"><span id="wireText"></span></span>
-            <span class="node"><svg class="i" aria-hidden="true"><use href="#i-pc"/></svg><b>Streaming PC</b><span id="nodeStreaming"></span></span>
+            <span class="node"><svg class="i" aria-hidden="true"><use href="#i-pc"/></svg><span class="node-text"><b id="nodeStreamingName">Streaming PC</b><span id="nodeStreaming"></span></span></span>
           </div>
         </div>
         <button type="button" class="btn" id="heroAction" hidden></button>
@@ -225,6 +225,7 @@
       <div class="card table-card">
         <table class="facts">
           <tbody>
+            <tr><th scope="row">Computer name</th><td id="factName">—</td></tr>
             <tr><th scope="row">Role</th><td id="factRole">—</td></tr>
             <tr><th scope="row">This PC's address</th><td class="mono" id="factAddress">—</td></tr>
             <tr><th scope="row">Paired with</th><td id="factPeer">—</td></tr>
