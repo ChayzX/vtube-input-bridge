@@ -11,6 +11,8 @@ export function explain(e,app){
   ?'Could not reach the other PC. Make sure VTube Input Bridge is running there with controls enabled, that both PCs are on the network, and that Windows Firewall on the other PC allows VTube Input Bridge on private networks (TCP 5056).'
   :app==='Meld Studio'?'Could not connect to Meld Studio. Make sure Meld Studio is open with Settings > Advanced > Allow remote connections turned on, and check the address in settings.'
   :`Could not connect to ${app}. Make sure ${app} is open and its API is turned on, and check the address in settings.`;
+ // The pinned certificate no longer matches: the other PC was reinstalled or its settings reset. Nothing was sent.
+ if(/Peer certificate mismatch/.test(message))return 'The other PC is no longer the one this PC was paired with (it was reinstalled or reset). Export its pairing file again and import it on this PC.';
  if(code==='4009'||/authentication failed/i.test(message))return `${app} rejected the password. Re-enter the ${app} WebSocket password in settings.`;
  if(!message)return `${app} failed for an unknown reason.${UNKNOWN}`;
  return /outcome unknown/i.test(message)?`${app}: ${message}.${UNKNOWN}`:`${app}: ${message}.`;
