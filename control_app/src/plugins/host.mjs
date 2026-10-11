@@ -36,11 +36,11 @@ export class PluginHost {
  }
  // Runs a Stream Deck or peer command on the plugin that owns it.
  async action(name,args,deadline){
-  for(const {plugin,started} of this.entries.values()){
+  for(const {plugin,started,error} of this.entries.values()){
    const handler=own(plugin.actions,name)||own(plugin.actions,name.split('.')[0]+'.*');
-   if(handler){if(!started)throw new Error('Feature unavailable');return handler(args,deadline,name);}
+   if(handler){if(!started){const e=new Error(`Feature unavailable: ${plugin.name||plugin.id} is not running on this PC${error?` (${String(error).replace(/\.$/,'')})`:''}.`);e.publicMessage=e.message;e.code='unavailable';throw e;}return handler(args,deadline,name);}
   }
-  throw new Error('Action unsupported or disabled');
+  {const e=new Error('That action is unsupported by VTube Input Bridge on this PC. Update the app on both PCs.');e.publicMessage=e.message;e.code='unsupported';throw e;}
  }
  // Runs a settings-window request on one plugin.
  async ui(id,name,args){

@@ -90,7 +90,7 @@ internal sealed class HeadlessSender : IDisposable
     public string StatusJson()
     {
         var status = new Dictionary<string, object> {
-            { "type", "status" }, { "running", sender.IsRunning }, { "packets", sender.PacketsSent },
+            { "type", "status" }, { "running", sender.IsRunning }, { "packets", sender.PacketsSent }, { "bytesSent", sender.BytesSent },
             { "error", sender.LastError }, { "destination", destination },
             { "receiverConnected", sender.ReceiverConnected }, { "lastAckSequence", sender.LastAckSequence },
             { "lastAckUnixMs", sender.LastAckUnixMs }, { "gameMode", mouse.GameMode },

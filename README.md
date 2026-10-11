@@ -7,8 +7,8 @@ A Windows app and a background receiver bridge keyboard and mouse state from a g
 ## Repository layout
 
 - `control_app/`: the VTube Input Bridge app; `src/plugins/` holds the tracking, controls and reactives plugins.
-- `windows_app/`: Pantry's sender and raw mouse capture (run headless by the app, or as the older standalone window), and tests.
-- `vts_input_relay/`: Canada's background UDP-to-VTube-Studio receiver.
+- `windows_app/`: the Gaming PC's sender and raw mouse capture (run headless by the app, or as the older standalone window), and tests.
+- `vts_input_relay/`: the Streaming PC's background UDP-to-VTube-Studio receiver.
 - `shared/`: version 1 packet types; `simulator/`: development packet generator.
 - `gaming_input_relay/`: legacy console sender (desktop cursor capture only).
 - `scripts/`: build/test scripts; `docs/`: setup and verification instructions.
@@ -17,12 +17,12 @@ A Windows app and a background receiver bridge keyboard and mouse state from a g
 
 The sender defaults to desktop cursor position. Games can hold that cursor still while reading physical mouse movement separately. Enable **Game mouse mode (for locked cursor)** in the gaming-PC app for those games. It receives background Windows Raw Input, accumulates relative movement between packets, and converts it to bounded mouse-position values. Motion returns toward center while idle; sensitivity is adjustable from 0.1 to 5. The raw movement event counter confirms that movement is arriving, even with the app in the tray. Switch the mode off when you want the model to follow a visible desktop cursor. Settings persist under `%APPDATA%\VTubeInputBridge\mouse-mode.txt`.
 
-The packet format, receiver, and model mappings are unchanged by game mode. **Install this update on Pantry only; Canada does not need an update or restart.** The sender observes mouse input without moving the cursor or sending input to the game. Automated movement/UDP tests and a Windows registration smoke test cover the implementation; a physical in-match test is required before calling game compatibility verified. See [verification instructions](docs/Gameplay-Mouse-Verification.md).
+The packet format, receiver, and model mappings are unchanged by game mode. **Install this update on the Gaming PC only; the Streaming PC does not need an update or restart.** The sender observes mouse input without moving the cursor or sending input to the game. Automated movement/UDP tests and a Windows registration smoke test cover the implementation; a physical in-match test is required before calling game compatibility verified. See [verification instructions](docs/Gameplay-Mouse-Verification.md).
 
 ## Setup
 
 1. Turn on **Start API** in VTube Studio on the stream PC. The API normally uses `ws://127.0.0.1:8001`.
-2. On the stream PC, run `vts_input_relay.exe --source <gaming-PC-LAN-IP>` as a background task, then run `VTubeInputBridge.exe --receiver` in the signed-in user's session. The receiver listens on `0.0.0.0:5055` and writes `status.json` next to its token file. If both PCs are on the same `10.0.0.x/24` network, use Canada's LAN address `10.0.0.119` as the sender destination; Tailscale is not needed for this bridge. Permit inbound UDP 5055 in Windows Firewall only from the gaming PC's private address.
+2. On the stream PC, run `vts_input_relay.exe --source <gaming-PC-LAN-IP>` as a background task, then run `VTubeInputBridge.exe --receiver` in the signed-in user's session. The receiver listens on `0.0.0.0:5055` and writes `status.json` next to its token file. If both PCs are on the same `10.0.0.x/24` network, use the Streaming PC's LAN address (for example `10.0.0.119`) as the sender destination; Tailscale is not needed for this bridge. Permit inbound UDP 5055 in Windows Firewall only from the gaming PC's private address.
 3. Approve **Game Input Relay** by **ChayzX** when VTube Studio asks. The token is saved under `%LOCALAPPDATA%\VTubeInputRelay\vts-token.txt` for later starts.
 4. The receiver also feeds the gaming mouse coordinates into VTube Studio's built-in `MousePositionX` and `MousePositionY` inputs. Models already mapped to those inputs will respond to the gaming mouse. Map any other `Game*` tracking inputs to the desired Live2D outputs in VTube Studio's model parameter settings; the receiver does not alter saved model mappings.
 5. On the gaming PC, disable and stop any existing task that runs `gaming_input_relay.exe`. Install and run `VTubeInputBridge.exe --sender` in the signed-in gaming user's session. Its default destination is `10.0.0.119`; the Start button begins sending at about 60 Hz. The current app captures mouse position, mouse buttons, letters, digits, numpad digits, and supported special keys. The app's sign-in checkbox registers it under the current user's Run key with `--sender --autostart`.
@@ -39,7 +39,7 @@ The legacy console sender remains available as `gaming_input_relay.exe` with `--
 
 `scripts/Update-VTubeBridge.ps1` downloads the newest release for that PC's role, verifies it against the release's `SHA256SUMS.txt`, and runs the matching installer. It refuses to install a package with no checksum entry or a mismatch, and skips the install if that release is already installed (`-Force` reinstalls). The repository is private, so each PC needs a read-only token.
 
-**One-time setup per PC** (Pantry and Canada each get their own token so either can be revoked separately):
+**One-time setup per PC** (the Gaming PC and the Streaming PC each get their own token so either can be revoked separately):
 
 1. On GitHub: Settings > Developer settings > Personal access tokens > Fine-grained tokens > Generate new token. Name it for the PC, set an expiry, choose **Only select repositories** > `ChayzX/vtube-input-bridge`, and under Repository permissions set **Contents: Read-only** (Metadata read is added automatically). Nothing else.
 2. On that PC, store it for the signed-in user (a new PowerShell window is needed afterwards):
@@ -58,10 +58,10 @@ Invoke-WebRequest -Headers $h -UseBasicParsing -OutFile "$env:USERPROFILE\Update
 **Updating**
 
 ```powershell
-# Gaming PC (Pantry), as the signed-in gaming user; -StopApp exits a running sender first
+# Gaming PC, as the signed-in gaming user; -StopApp exits a running sender first
 & "$env:USERPROFILE\Update-VTubeBridge.ps1" -Role Gaming -StopApp
 
-# Stream PC (Canada), in an administrator PowerShell; stop the bridge first (the installer will not interrupt it)
+# Streaming PC, in an administrator PowerShell; stop the bridge first (the installer will not interrupt it)
 & "$env:USERPROFILE\Update-VTubeBridge.ps1" -Role Stream -GamingPC <gaming-PC-LAN-IP>
 ```
 
@@ -81,15 +81,11 @@ On Linux, `cargo test --workspace --locked` tests the Rust workspace. With Mono 
 
 ## Stream Deck and reactives plugins (preview)
 
-`control_app/`, `streamdeck_plugin/`, and `media_helper/` provide the app's Stream Deck controls and reactives plugins. Pantry's Stream Deck can select Canada OBS scenes, control Canada Spotify, and trigger saved VTube Studio hotkeys. An experimental sandboxed Fugi renderer on Pantry relays transparent PNGs to a Canada Web Item. Real Discord speaking-state behavior and native Windows deployment remain unverified.
+`control_app/`, `streamdeck_plugin/`, and `media_helper/` provide the app's Stream Deck controls and reactives plugins. The Gaming PC's Stream Deck can switch OBS or Meld Studio scenes, control Spotify and trigger saved VTube Studio hotkeys on either PC. A sandboxed Fugi renderer on the Gaming PC relays transparent PNGs to a VTube Studio Web Item on the Streaming PC.
 
-Controls start disabled, install into versioned directories, and have a separate rollback script and backup record. No code automatically edits OBS scenes, VTS model mappings or Stream Deck profiles. Read [setup and rollback](docs/Control-Setup.md) and [build limits](docs/Control-Build-Status.md) before installing.
+The app installs into versioned directories and has a separate rollback script and backup record. No code automatically edits OBS scenes, VTS model mappings or Stream Deck profiles. Read [setup and rollback](docs/Control-Setup.md) and [build limits](docs/Control-Build-Status.md) before installing.
 
-**One-click install per PC.** `build-controls.ps1` runs `.\scripts\New-ControlInstaller.ps1 -Role pantry` and `-Role canada`, writing `build\Install-VTubeInputBridge-GamingPC.cmd` (with the Stream Deck plugin) and `build\Install-VTubeInputBridge-StreamPC.cmd`. Each is about 200 MB, so share them as cloud-drive links. Double-clicking one as the signed-in user:
-1. Verifies the payloads' SHA256.
-2. Closes the separate tracking window and removes it from sign-in, saving the old entry under `%LOCALAPPDATA%\VTubeControl\retired`. On the gaming PC it also disables the legacy console sender task.
-3. Runs `Install-Control.ps1 -Role <role> -EnableStartup`, which takes over the VTube Input Bridge shortcuts and starts the app in the tray at sign-in. It adds no firewall rule.
-4. On the gaming PC, hands the plugin to Stream Deck.
+**One installer for both PCs.** `build-controls.ps1` writes `build\Install-VTubeInputBridge.cmd` (about 200 MB, with the Stream Deck plugin; share it as a cloud-drive link). Double-click it on each PC as the signed-in user. It asks once which PC it is on (or knows from an earlier install), verifies its payloads' SHA256, retires the separate tracking app, installs into a versioned folder, adds the firewall rules (approval needed the first time only), registers an **Apps & features** entry for uninstalling, and on the Gaming PC hands the plugin to Stream Deck. Later updates come from **Advanced › Updates** in the app, which installs on both PCs. See [setup](docs/Control-Setup.md).
 5. Opens the app.
 
 Tracking settings (address, game mouse mode) carry over because the helper reads the same files. Pairing and the VTube Studio Web Item remain manual steps in the setup guide.

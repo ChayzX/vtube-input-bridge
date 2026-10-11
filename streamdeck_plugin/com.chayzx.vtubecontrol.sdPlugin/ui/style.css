@@ -1,1 +1,23 @@
-:root{color-scheme:dark}body{font:13px system-ui;background:#282828;color:#ddd;margin:12px}label{display:block;margin:12px 0}input,select,button{width:100%;box-sizing:border-box;margin-top:5px;padding:7px;background:#3b3b3b;color:#fff;border:1px solid #777;border-radius:4px}p{line-height:1.5}input:focus-visible,select:focus-visible,button:focus-visible{outline:2px solid #8ccaff}
+/* Stream Deck property inspector, in the style of Elgato's own (dark, 13 px). Text is at least 4.5:1 and control
+   borders at least 3:1 against the #2d2d2d background. */
+:root{color-scheme:dark;--bg:#2d2d2d;--text:#e6e6e6;--muted:#b3b3b3;--field:#3d3d3d;--border:#8a8a8a;--accent:#b4a2ff;--ok:#6ccb5f;--warn:#fce100;--err:#ff99a4;--focus:#8ccaff}
+*{box-sizing:border-box}
+body{font:13px/18px "Segoe UI",system-ui,sans-serif;background:var(--bg);color:var(--text);margin:0;padding:12px 14px}
+[hidden]{display:none!important}
+.field{margin:0 0 12px}
+label{display:block;margin-bottom:4px;color:var(--muted)}
+input,select,button{font:inherit;color:var(--text);background:var(--field);border:1px solid var(--border);border-radius:4px;height:30px;padding:0 8px;width:100%}
+select:disabled{opacity:.6;cursor:not-allowed}
+button{width:auto;cursor:pointer;padding:0 12px;flex:none}
+button:hover{background:#4a4a4a}
+button:disabled{opacity:.5;cursor:progress}
+input:focus-visible,select:focus-visible,button:focus-visible{outline:2px solid var(--focus);outline-offset:1px}
+.pick{display:flex;gap:6px}
+.pick select{flex:1;min-width:0}
+.hint{margin:4px 0 0;color:var(--muted);font-size:12px;line-height:16px}
+.status{display:flex;align-items:center;gap:8px;margin:0 0 14px;padding:8px 10px;border-radius:6px;background:#383838;line-height:16px}
+.status .dot{width:8px;height:8px;border-radius:50%;background:var(--muted);flex:none}
+.status.ok .dot{background:var(--ok)}.status.warn .dot{background:var(--warn)}.status.err .dot{background:var(--err)}
+.message{margin:0;color:var(--muted);line-height:18px}
+.message.err{color:var(--err)}
+#last{margin-top:10px}

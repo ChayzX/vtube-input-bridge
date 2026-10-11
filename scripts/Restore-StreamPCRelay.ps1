@@ -9,7 +9,7 @@ $record = Get-Content -LiteralPath $Record -Raw | ConvertFrom-Json
 $expectedXml = Join-Path (Split-Path -Parent ([IO.Path]::GetFullPath($Record))) 'VTube-Input-Relay.task.xml'
 if ($record.schema -ne 1 -or $record.taskName -ne 'VTube Input Relay' -or $record.taskPath -ne '\' -or [IO.Path]::GetFullPath($record.taskXml) -ne [IO.Path]::GetFullPath($expectedXml) -or -not (Test-Path -LiteralPath $expectedXml)) { throw 'The migration record is invalid or its saved task XML is missing.' }
 $sourceIp = $null
-if (-not [Net.IPAddress]::TryParse([string]$record.source,[ref]$sourceIp) -or $sourceIp.AddressFamily -ne [Net.Sockets.AddressFamily]::InterNetwork) { throw 'The saved Pantry address is invalid.' }
+if (-not [Net.IPAddress]::TryParse([string]$record.source,[ref]$sourceIp) -or $sourceIp.AddressFamily -ne [Net.Sockets.AddressFamily]::InterNetwork) { throw 'The saved Gaming PC address is invalid.' }
 if (Get-ScheduledTask -TaskPath '\' -TaskName $record.taskName -ErrorAction SilentlyContinue) { throw "Task '$($record.taskName)' already exists. No changes were made." }
 $xml = Get-Content -LiteralPath $record.taskXml -Raw
 $taskXml = [xml]$xml

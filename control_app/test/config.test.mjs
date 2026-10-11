@@ -1,7 +1,35 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {defaults,validateConfig,validatePair} from '../src/config.mjs';
-test('fresh companion is inert and requires explicit LAN pairing',()=>{const c=defaults('pantry');assert.equal(c.enabled,false);assert.equal(c.reactive.enabled,false);assert.equal(c.obs.enabled,false);assert.throws(()=>validateConfig({...c,enabled:true}));});
+test('fresh companion has every feature on, finds its own address, and keys for the other PC wait for pairing',()=>{const c=defaults('pantry');assert.equal(c.enabled,true);assert.equal(c.ownIp,'');assert.equal(c.peer,null);for(const f of ['obs','vts','meld','spotify','reactive','notify'])assert.equal(c[f].enabled,true,f);assert.deepEqual(c.updates,{auto:true,fromPeer:true});assert.equal(defaults('canada').reactive.enabled,false);validateConfig(c);validateConfig(defaults('canada'));});
+test('settings from before 1.0 drop the typed address and gain notifications and update settings',async()=>{const {upgradeConfig}=await import('../src/config.mjs');
+ const old={...defaults('canada'),enabled:false,ownIp:'10.0.0.119'};delete old.notify;delete old.updates;assert.throws(()=>validateConfig(old));
+ const up=validateConfig(upgradeConfig(old,'canada'));assert.equal(up.ownIp,'');assert.equal(up.enabled,false);assert.deepEqual(up.notify,{enabled:true});assert.deepEqual(up.updates,{auto:true,fromPeer:true});
+});
 test('peer imports require private IPv4, fixed service port and certificate pin',()=>{
  const good={host:'10.0.0.119',port:5056,pin:'a'.repeat(64),token:'b'.repeat(64)};assert.equal(validatePair(good).host,'10.0.0.119');
  for(const override of [{host:'8.8.8.8'},{host:'10.0.0.999'},{port:80},{pin:'anything'},{token:'short'}])assert.throws(()=>validatePair({...good,...override}));
 });
 test('configuration cannot point OBS or VTS at arbitrary hosts',()=>{const c=defaults('canada');assert.throws(()=>validateConfig({...c,obs:{...c.obs,url:'ws://evil.test'}}));assert.throws(()=>validateConfig({...c,vts:{...c.vts,url:'file:///tmp/a'}}));});
+test('settings saved before Meld Studio support load with Meld turned off, and Meld stays on loopback',async()=>{
+ const {upgradeConfig}=await import('../src/config.mjs');const c=defaults('canada');delete c.meld;
+ assert.throws(()=>validateConfig(c));const up=validateConfig(upgradeConfig(c));assert.deepEqual(up.meld,{enabled:true,url:'ws://127.0.0.1:13376'});
+ assert.throws(()=>validateConfig({...up,meld:{enabled:true,url:'ws://10.0.0.5:13376'}}));
+});
+test('the stored role follows the role the PC was installed as',async()=>{const {upgradeConfig}=await import('../src/config.mjs');
+ const switched={...defaults('pantry'),role:'canada',ownIp:'10.0.0.119'};const pantry=upgradeConfig({...switched,role:'pantry',reactive:{enabled:true,url:'',visible:true}},'canada');
+ assert.equal(pantry.role,'canada');assert.equal(pantry.reactive.enabled,false);validateConfig(pantry);
+ assert.equal(upgradeConfig(defaults('pantry'),'pantry').reactive.enabled,true);assert.equal(upgradeConfig({...defaults('canada'),meld:undefined},'canada').meld.enabled,true);});
+test('an imported file that is not JSON is refused with a sentence, not a parser error',async()=>{
+ const {parsePairingFile}=await import('../src/config.mjs');const good={host:'10.0.0.119',port:5056,pin:'a'.repeat(64),token:'b'.repeat(64)};
+ assert.equal(parsePairingFile(Buffer.from(JSON.stringify(good))).host,'10.0.0.119');
+ assert.throws(()=>parsePairingFile(Buffer.from('not json')),e=>/not a pairing file/.test(e.message)&&!/SyntaxError|Unexpected token/.test(e.message));
+ assert.throws(()=>parsePairingFile(Buffer.alloc(9000)),/too large/);
+});
+test('a pairing file saved with a byte-order mark still imports',async()=>{
+ const {parsePairingFile}=await import('../src/config.mjs');const good={host:'10.0.0.119',port:5056,pin:'a'.repeat(64),token:'b'.repeat(64)};
+ assert.equal(parsePairingFile(Buffer.concat([Buffer.from([0xef,0xbb,0xbf]),Buffer.from(JSON.stringify(good,null,2))])).host,'10.0.0.119');
+});
+test('saving a Fugi page the renderer cannot use is refused instead of silently not rendering',async()=>{
+ const {validateSave}=await import('../src/config.mjs');const c=defaults('pantry');
+ assert.throws(()=>validateSave({...c,reactive:{...c.reactive,url:'https://reactive.fugi.tech/settings'}}),/group or individual/);
+ validateSave({...c,reactive:{...c.reactive,url:'https://reactive.fugi.tech/group'}});validateSave({...c,reactive:{...c.reactive,url:'https://reactive.fugi.tech/individual/123456789012345678'}});validateSave(c);
+});

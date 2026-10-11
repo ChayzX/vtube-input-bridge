@@ -1,6 +1,7 @@
 {
   "name": "vtube-control",
-  "version": "0.3.0-preview.2",
+  "productName": "VTube Input Bridge",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
   "main": "src/main.mjs",

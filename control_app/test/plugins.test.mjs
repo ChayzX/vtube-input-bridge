@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {spawn} from 'node:child_process';
+import {EventEmitter} from 'node:events';
+import {PassThrough} from 'node:stream';
 import {mkdtemp,readFile,writeFile,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
@@ -27,7 +29,7 @@ test('a failing plugin does not stop the others, and its commands are refused', 
  const status=host.status();
  assert.equal(status.controls.started,false);assert.match(status.controls.error,/credential storage/);
  assert.equal(status.tracking.started,true);assert.equal(status.tracking.state,'Sending');
- await assert.rejects(host.action('obs.scenes',{}),/Feature unavailable/);
+ await assert.rejects(host.action('obs.scenes',{}),/Feature unavailable.*credential storage/);
  assert.equal(await host.action('tracking.ping',{}),'pong');
  await assert.rejects(host.action('unknown.thing',{}),/unsupported/);
  await assert.rejects(host.ui('tracking','constructor',{}),/Unknown request/);
@@ -92,17 +94,125 @@ test('the old window holding the sender lock is reported, not hidden', async()=>
  finally{await plugin.stop();await rm(dir,{recursive:true,force:true});}
 });
 
-test('stream PC tracking reports the relay status like the old receiver window', async()=>{
- let running=true,file=null;const now=1_000_000;
- const receiver=new TrackingReceiver({statusFile:'status.json',relayRunning:async()=>running,
-  readFile:async()=>{if(!file)throw new Error('ENOENT');return JSON.stringify(file);},now:()=>now,timers:{setInterval:()=>1,clearInterval:()=>{}}});
- await receiver.start();assert.equal(receiver.status().state,'Receiver running');
+function fakeRelay(){
+ const calls=[];
+ const spawn=(exe,args)=>{
+  const child=new EventEmitter();child.stdin=new PassThrough();child.stderr=new PassThrough();child.exitCode=null;child.signalCode=null;
+  const close=code=>{if(child.exitCode!==null)return;child.exitCode=code;child.emit('close',code,null);};
+  child.kill=()=>close(1);child.stdin.on('finish',()=>close(0));
+  calls.push({exe,args});return child;
+ };
+ return {spawn,calls};
+}
+function receiverWith({config,legacy=false,status,paired=()=>null,timers={setInterval:()=>1,clearInterval:()=>{},setTimeout:()=>1,clearTimeout:()=>{}}}){
+ const {spawn,calls}=fakeRelay();const now=1_000_000;
+ const receiver=new TrackingReceiver({exe:'vts_input_relay.exe',configFile:'relay-config.json',statusFile:'status.json',pairedSource:paired,
+  tokenFile:join(tmpdir(),'vtube-relay-test','vts-token.txt'),legacyRelayPresent:async()=>legacy,spawn,removeFile:async()=>{},now:()=>now,
+  readFile:async file=>{
+   if(file==='relay-config.json'&&config!==undefined)return config;
+   if(file==='status.json'&&status.current)return JSON.stringify(status.current);
+   throw Object.assign(new Error('ENOENT'),{code:'ENOENT'});
+  },
+  timers});
+ return {receiver,calls,now};
+}
+
+test('stream PC relay reads settings written by Windows PowerShell (byte-order mark) and reports status', async()=>{
+ const status={current:null};
+ const {receiver,calls,now}=receiverWith({config:'﻿{"source":"10.0.0.112"}',status});
+ await receiver.start();
+ assert.equal(calls.length,1);assert.deepEqual(calls[0].args.slice(0,2),['--source','10.0.0.112']);
+ await receiver.poll();assert.equal(receiver.status().state,'Starting receiver');
+ status.current={source:'10.0.0.112',vts_connected:false,packets_received:0,last_packet_unix_ms:0};await receiver.poll();
+ assert.equal(receiver.status().state,'Waiting for VTube Studio');
+ status.current={...status.current,vts_connected:true,packets_received:42,last_packet_unix_ms:now-1000};await receiver.poll();
+ assert.equal(receiver.status().state,'Receiving input');assert.equal(receiver.status().packets,42);
+ status.current={...status.current,last_packet_unix_ms:now-5000};await receiver.poll();
+ assert.equal(receiver.status().state,'Waiting for the Gaming PC');
+ await receiver.stop();assert.equal(receiver.status().state,'Receiver stopped');
+});
+
+test('stream PC relay does not start with broken settings or beside the old task', async()=>{
+ const broken=receiverWith({config:'{"source":"not an ip"}',status:{current:null}});
+ await broken.receiver.start();
+ assert.equal(broken.calls.length,0);assert.match(broken.receiver.status().detail,/setup is incomplete/);
+ const legacy=receiverWith({config:'{"source":"10.0.0.112"}',legacy:true,status:{current:null}});
+ await legacy.receiver.start();
+ assert.equal(legacy.calls.length,0);assert.match(legacy.receiver.status().detail,/old VTube Input Relay/);
+});
+
+test('a new Streaming PC with no migrated settings waits for pairing, then relays from the paired Gaming PC', async()=>{
+ let host=null;const pending=[];
+ const timers={setInterval:()=>1,clearInterval:()=>{},setTimeout:fn=>{pending.push(fn);return pending.length;},clearTimeout:()=>{}};
+ const {receiver,calls}=receiverWith({status:{current:null},paired:()=>host,timers});
+ await receiver.start();
+ assert.equal(calls.length,0);assert.equal(receiver.status().state,'Waiting for pairing');assert.match(receiver.status().detail,/paired with the Gaming PC/);
+ // Each retry is a timer; run it and wait until it has either rescheduled itself or launched the relay.
+ const fire=async()=>{const before=calls.length;pending.shift()();for(let i=0;i<500&&!pending.length&&calls.length===before;i++)await new Promise(r=>setTimeout(r,2));};
+ await fire();assert.equal(calls.length,0);assert.equal(pending.length,1);
+ host='10.0.0.112';await fire();
+ assert.equal(calls.length,1);assert.deepEqual(calls[0].args.slice(0,2),['--source','10.0.0.112']);
+ await receiver.stop();
+});
+
+test('the Streaming PC prefers the paired Gaming PC over old relay settings and follows it to a new address', async()=>{
+ let host='10.0.0.50';
+ const {receiver,calls}=receiverWith({config:'{"source":"10.0.0.112"}',status:{current:null},paired:()=>host});
+ await receiver.start();assert.deepEqual(calls.at(-1).args.slice(0,2),['--source','10.0.0.50']);
+ await receiver.sourceChanged();assert.equal(calls.length,1,'same address: no restart');
+ host='10.0.0.77';await receiver.sourceChanged();
+ for(let i=0;i<200&&calls.length<2;i++)await new Promise(r=>setTimeout(r,2));
+ assert.equal(calls.length,2);assert.deepEqual(calls[1].args.slice(0,2),['--source','10.0.0.77']);assert.equal(receiver.lastError,'');
+ await receiver.stop();
+});
+
+test('an unexpected relay exit is reported and restarted with backoff', async()=>{
+ // The app runs the relay itself (vts_input_relay --managed) and reads the status file it writes.
+ let file=null,spawned=0,child;const now=1_000_000;const timers=[];
+ const fakeChild=()=>{const c=Object.assign(new EventEmitter(),{exitCode:null,signalCode:null,stderr:new EventEmitter()});c.stdin={end(){setImmediate(()=>{c.exitCode=0;c.emit('close',0,null);});}};return c;};
+ const receiver=new TrackingReceiver({exe:'vts_input_relay.exe',configFile:'relay-config.json',tokenFile:join(tmpdir(),'vtc-relay-test','token'),statusFile:'status.json',
+  legacyRelayPresent:async()=>false,spawn:(exe,args)=>{spawned++;assert.deepEqual(args.slice(0,2),['--source','10.0.0.112']);return child=fakeChild();},removeFile:async()=>{},
+  readFile:async path=>{if(path==='relay-config.json')return JSON.stringify({source:'10.0.0.112'});if(!file)throw new Error('ENOENT');return JSON.stringify(file);},
+  now:()=>now,timers:{setInterval:()=>1,clearInterval:()=>{},setTimeout:(fn,ms)=>{timers.push(fn);return timers.length;},clearTimeout:()=>{}}});
+ await receiver.start();assert.equal(spawned,1);assert.equal(receiver.status().state,'Starting receiver');
  file={source:'10.0.0.112',vts_connected:false,packets_received:0,last_packet_unix_ms:0};await receiver.poll();
  assert.equal(receiver.status().state,'Waiting for VTube Studio');
  file={...file,vts_connected:true,packets_received:42,last_packet_unix_ms:now-1000};await receiver.poll();
  assert.equal(receiver.status().state,'Receiving input');assert.equal(receiver.status().packets,42);
  file={...file,last_packet_unix_ms:now-5000};await receiver.poll();
- assert.equal(receiver.status().state,'Waiting for gaming PC');
- running=false;await receiver.poll();assert.equal(receiver.status().state,'Receiver stopped');
- await receiver.stop();
+ assert.equal(receiver.status().state,'Waiting for the Gaming PC');
+ // An unexpected relay exit is reported and restarted with backoff.
+ child.exitCode=1;child.emit('close',1,null);await receiver.poll();
+ assert.equal(receiver.status().state,'Restarting receiver');assert.match(receiver.status().detail,/exited \(code 1\)/);
+ timers.shift()();await until(()=>spawned===2,'relay restart');
+ await receiver.stop();assert.equal(receiver.status().state,'Receiver stopped');
+});
+
+test('reactive refusals say why and never "it may already have happened"', async()=>{
+ const {createReactivesPlugin}=await import('../src/plugins/reactives.mjs');const {Dispatcher}=await import('../src/commands.mjs');
+ const run=async(config,action)=>{const host=new PluginHost();let started=0;
+  host.add(createReactivesPlugin({getConfig:()=>config,linkError:()=>null,renderer:{state:'Stopped',stop(){},start:async()=>{started++;}},frames:{get:()=>null},setVisible:async v=>v,clearPeerFrame:async()=>{}}));await host.start('reactives');
+  const r=await new Dispatcher(c=>host.action(c.action,c.args,{})).execute({id:'r',target:'local',action,args:{},expiresAt:Date.now()+5000});return {r,started};};
+ const pantry={role:'pantry',reactive:{enabled:true,url:'https://reactive.fugi.tech/group',visible:true}};
+ for(const [config,action,message] of [[{role:'canada',reactive:{enabled:false,visible:true}},'reactive.start',/runs on the Gaming PC/],[pantry,'reactive.show',/shown and hidden on the Streaming PC/],
+  [{...pantry,reactive:{...pantry.reactive,enabled:false}},'reactive.start',/rendering is turned off/],[{...pantry,reactive:{...pantry.reactive,url:''}},'reactive.start',/Enter the Fugi/],
+  [{...pantry,reactive:{...pantry.reactive,url:'https://reactive.fugi.tech/settings'}},'reactive.start',/group or individual/]]){
+  const {r,started}=await run(config,action);assert.equal(r.ok,false);assert.match(r.message,message);assert.doesNotMatch(r.message,/may already have happened/);assert.equal(started,0);
+ }
+ assert.equal((await run(pantry,'reactive.start')).started,1);
+ assert.equal((await run({...pantry,role:'canada'},'reactive.hide')).r.ok,true);
+});
+
+test('Start pressed before the tracking helper is ready sends the typed address once it reports', async()=>{
+ const written=[];let child;
+ const spawn=()=>{child=new EventEmitter();child.stdin=new PassThrough();child.stdout=new PassThrough();child.exitCode=null;child.signalCode=null;child.stdin.on('data',b=>written.push(...String(b).trim().split('\n')));child.stdin.on('finish',()=>setImmediate(()=>{child.exitCode=0;child.emit('exit',0);}));return child;};
+ const s=new TrackingSender({exe:'x',settingsFile:join(tmpdir(),'vtc-missing','tracking.json'),spawn,sendRetryDelays:[20]});
+ await s.start();s.settings.startSendingOnLaunch=false;s.wantSending=false;
+ try{
+  // The helper has not printed its first status yet.
+  assert.equal((await s.ui.start({destination:'10.0.0.150'})).state,'Starting');
+  await new Promise(r=>setTimeout(r,60));assert.deepEqual(written,[]);
+  child.stdout.write(JSON.stringify({type:'status',running:false,destination:'10.0.0.77'})+'\n');
+  await until(()=>written.length>0,'start command');assert.deepEqual(written,['start 10.0.0.150']);
+ }finally{await s.stop();}
 });

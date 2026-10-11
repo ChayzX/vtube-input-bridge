@@ -17,6 +17,7 @@ internal sealed class SenderRuntime : IDisposable
     private InputState previous = new InputState();
     private long sequence;
     private long packetsSent;
+    private long bytesSent;
     private long lastAckSequence = -1;
     private long lastAckUnixMs;
     private string lastError = "";
@@ -25,6 +26,7 @@ internal sealed class SenderRuntime : IDisposable
 
     public bool IsRunning { get { lock (gate) return timer != null; } }
     public long PacketsSent { get { lock (gate) return packetsSent; } }
+    public long BytesSent { get { lock (gate) return bytesSent; } }
     public string LastError { get { lock (gate) return lastError; } }
     public long LastAckSequence { get { lock (gate) return lastAckSequence; } }
     public long LastAckUnixMs { get { lock (gate) return lastAckUnixMs; } }
@@ -44,6 +46,7 @@ internal sealed class SenderRuntime : IDisposable
             previous = new InputState();
             sequence = 0;
             packetsSent = 0;
+            bytesSent = 0;
             lastAckSequence = -1;
             lastAckUnixMs = 0;
             lastError = "";
@@ -118,6 +121,7 @@ internal sealed class SenderRuntime : IDisposable
                 socket.Send(data, data.Length, destination);
                 previous = state;
                 packetsSent++;
+                bytesSent += data.Length;
             }
             catch (Exception error)
             {

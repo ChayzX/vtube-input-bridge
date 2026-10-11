@@ -72,20 +72,30 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          tag='v0.3.0-preview.2'
+          version=$(node -p "require('./control_app/package.json').version")
+          tag="v$version"
+          # A stable version (no "-preview"/"-rc" suffix) built from main is published as the latest release, which is
+          # what the app's "Check for updates" looks for. Anything else stays a draft pre-release.
+          if [[ "$version" != *-* && "$GITHUB_REF" == refs/heads/main ]]; then
+            kind=(--latest); notes="Installer for both PCs (it asks whether it is on the Gaming PC or the Streaming PC). Update both PCs."
+          else
+            kind=(--draft --prerelease); notes='Draft installer for both PCs (it asks whether it is on the Gaming PC or the Streaming PC). Not published.'
+          fi
           if ! gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release create "$tag" --repo "$GITHUB_REPOSITORY" --draft --prerelease --target "$GITHUB_SHA" \
-              --title 'VTube Input Bridge 0.3.0-preview.2' \
-              --notes 'Draft installers for Pantry (gaming PC) and Canada (stream PC). Not published.'
+            gh release create "$tag" --repo "$GITHUB_REPOSITORY" "${kind[@]}" --target "$GITHUB_SHA" \
+              --title "VTube Input Bridge $version" --notes "$notes"
           fi
           gh release upload "$tag" --repo "$GITHUB_REPOSITORY" --clobber \
-            build/Install-VTubeInputBridge-GamingPC.cmd \
-            build/Install-VTubeInputBridge-StreamPC.cmd
+            build/Install-VTubeInputBridge.cmd
+      # Installers ship through the draft release above. This copy is a convenience: the bundle is several hundred MB,
+      # so a full artifact storage quota must not fail the build, and it expires after a day.
       - uses: actions/upload-artifact@v4
         if: ${{ !inputs.artifacts_only }}
+        continue-on-error: true
         with:
           name: VTubeControl-Preview
+          retention-days: 1
           path: |
             build/VTubeControl-*.zip
             build/*.streamDeckPlugin
-            build/Install-VTubeInputBridge-*.cmd
+            build/Install-VTubeInputBridge.cmd

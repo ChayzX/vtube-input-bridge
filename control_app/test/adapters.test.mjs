@@ -30,3 +30,48 @@ test('VTS does not trigger a hotkey after slow authentication consumes deadline'
  s.on('connection',w=>w.on('message',b=>{const p=JSON.parse(b);if(p.messageType==='AuthenticationRequest')setTimeout(()=>{if(w.readyState===1)w.send(JSON.stringify({requestID:p.requestID,messageType:'AuthenticationResponse',data:{authenticated:true}}));},60);if(p.messageType==='HotkeyTriggerRequest')triggered++;}));
  try{await assert.rejects(vtsAction({url:`ws://127.0.0.1:${s.address().port}`,token:'token',expiresAt:Date.now()+10},'vts.trigger',{hotkey:'friends'}),/expired/);assert.equal(triggered,0);}finally{await new Promise(r=>s.close(r));}
 });
+test('Meld Studio adapter lists scenes and switches by name over the WebChannel API',async()=>{
+ const {meldAction}=await import('../src/meld.mjs');
+ const items={AAAA:{type:'scene',index:1,name:'BRB',current:false},BBBB:{type:'scene',index:0,name:'Gaming',current:true},CCCC:{type:'layer',parent:'BBBB',name:'Cam'}};
+ // Meld publishes `session` as a QObject; the other run sends it as a plain map to cover both WebChannel shapes.
+ for(const published of [true,false]){
+  const s=new WebSocketServer({port:0,host:'127.0.0.1'});await once(s,'listening');const shown=[];
+  const session=published?{'__QObject*__':true,id:'{s}',data:{methods:[],signals:[],properties:[[0,'objectName',[1,2],''],[1,'items',[3,4],items]]}}:{items};
+  s.on('connection',w=>w.on('message',b=>{const m=JSON.parse(b);
+   if(m.type===3)w.send(JSON.stringify({type:10,id:m.id,data:{meld:{methods:[['sessionChanged',5],['showScene',12],['showScene(QString)',12]],signals:[['sessionChanged',5]],properties:[[0,'objectName',[1,2],'meld'],[1,'session',[5,5],session]]}}}));
+   if(m.type===6){assert.equal(m.object,'meld');assert.equal(m.method,12);shown.push(m.args[0]);w.send(JSON.stringify({type:10,id:m.id,data:null}));}
+  }));
+  try{
+   const opts={url:`ws://127.0.0.1:${s.address().port}`};
+   const r=await meldAction(opts,'meld.scenes',{});
+   assert.deepEqual(r.scenes.map(x=>x.sceneName),['Gaming','BRB']);assert.equal(r.currentScene,'Gaming');
+   assert.deepEqual(await meldAction(opts,'meld.scene',{scene:'BRB'}),{scene:'BRB'});assert.deepEqual(shown,['AAAA']);
+   await assert.rejects(meldAction(opts,'meld.scene',{scene:'Nope'}),/no scene named "Nope"/);
+   await assert.rejects(meldAction(opts,'meld.scene',{scene:''}),/Choose a Meld Studio scene/);
+  }finally{await new Promise(r=>s.close(r));}
+ }
+});
+test('VTS approval is only asked for when VTube Studio is running; otherwise the press says how to open it',async()=>{
+ const {describing}=await import('../src/errors.mjs');const s=new WebSocketServer({port:0,host:'127.0.0.1'});await once(s,'listening');const port=s.address().port;await new Promise(r=>s.close(r));
+ await assert.rejects(describing('VTube Studio',()=>vtsAction({url:`ws://127.0.0.1:${port}`,token:''},'vts.trigger',{hotkey:'h'})),e=>/Could not connect to VTube Studio\. Make sure VTube Studio is open/.test(e.publicMessage)&&!/Allow/.test(e.publicMessage));
+});
+test('VTS approval: a revoked token is replaced, and the press does not wait for the Allow click',async()=>{
+ const s=new WebSocketServer({port:0,host:'127.0.0.1'});await once(s,'listening');let tokenRequests=0,allow,triggered=0;
+ s.on('connection',w=>w.on('message',b=>{const m=JSON.parse(b);const reply=data=>w.readyState===1&&w.send(JSON.stringify({requestID:m.requestID,messageType:m.messageType,data}));
+  // VTube Studio answers a token request only when the streamer clicks Allow.
+  if(m.messageType==='AuthenticationTokenRequest'){tokenRequests++;allow=()=>reply({authenticationToken:'fresh'});}
+  else if(m.messageType==='AuthenticationRequest')reply({authenticated:m.data.authenticationToken==='fresh'});
+  else{triggered++;reply({hotkeyID:m.data.hotkeyID});}}));
+ const config={url:`ws://127.0.0.1:${s.address().port}`,token:'revoked'};const saved=[];const opts=()=>({...config,saveToken:async t=>{saved.push(t);config.token=t;}});
+ try{
+  const started=Date.now();
+  await assert.rejects(vtsAction(opts(),'vts.trigger',{hotkey:'h'}),e=>e.code==='not_approved'&&/approve VTube Input Bridge again: click Allow in the VTube Studio window/.test(e.publicMessage));
+  assert.ok(Date.now()-started<1000);assert.deepEqual(saved,['']);
+  await new Promise(r=>setTimeout(r,50));assert.equal(tokenRequests,1);
+  // A second press while the prompt is open does not open another prompt.
+  // The prompt is on whichever PC runs VTube Studio (Pantry too), so the text names no PC.
+  await assert.rejects(vtsAction(opts(),'vts.trigger',{hotkey:'h'}),e=>/click Allow/.test(e.publicMessage)&&!/stream PC|Canada|Pantry/.test(e.publicMessage));await new Promise(r=>setTimeout(r,50));assert.equal(tokenRequests,1);
+  allow();const until=Date.now()+2000;while(config.token!=='fresh'&&Date.now()<until)await new Promise(r=>setTimeout(r,10));
+  assert.equal(config.token,'fresh');await vtsAction(opts(),'vts.trigger',{hotkey:'h'});assert.equal(triggered,1);
+ }finally{await new Promise(r=>s.close(r));}
+});

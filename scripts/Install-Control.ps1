@@ -5,14 +5,18 @@ param(
  [string]$InstallRoot = (Join-Path $env:LOCALAPPDATA 'VTubeControl'),
  [switch]$EnableStartup,
  [switch]$EnableFirewall,
- [string]$PeerAddress,
  [switch]$PlanOnly
 )
 $ErrorActionPreference = 'Stop'
 $manifest = Get-Content -LiteralPath (Join-Path $PackagePath 'bundle.json') -Raw | ConvertFrom-Json
 if ($manifest.version -notmatch '^\d+\.\d+\.\d+(-[a-z0-9.]+)?$') { throw 'Invalid bundle version' }
-if (-not $Role) { $Role = $manifest.role }
-if ($Role -notin @('pantry','canada') -or $Role -ne $manifest.role) { throw 'Use the package for this PC role' }
+# One package serves both PCs; the role (from the installer's question or -Role) only selects launch flags and the
+# Streaming PC's extra steps. Packages older than 1.0 were built per role and record it.
+if ($manifest.role) {
+ if (-not $Role) { $Role = $manifest.role }
+ if ($Role -ne $manifest.role) { throw 'Use the package for this PC role' }
+}
+if ($Role -notin @('pantry','canada') -or ($manifest.roles -and $Role -notin @($manifest.roles))) { throw 'Pass -Role pantry (Gaming PC) or -Role canada (Streaming PC)' }
 $payload = [IO.Path]::GetFullPath((Join-Path $PackagePath 'app'))
 foreach ($file in $manifest.files) {
  if ($file.path -match '(^[\\/]|(^|[\\/])\.\.([\\/]|$)|:)') { throw 'Unsafe bundle path' }
@@ -21,15 +25,13 @@ foreach ($file in $manifest.files) {
  if (-not (Test-Path -LiteralPath $path -PathType Leaf) -or (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash -ne $file.sha256) { throw "Bundle checksum mismatch: $($file.path)" }
 }
 $versionPath = Join-Path $InstallRoot "versions\$($manifest.version)"
-if ($PlanOnly) { [pscustomobject]@{Role=$Role;Version=$manifest.version;Destination=$versionPath;Startup=[bool]$EnableStartup;Firewall=[bool]$EnableFirewall;TrackingChanges=$false}; return }
+$uninstallKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\VTubeInputBridge'
+if ($PlanOnly) { [pscustomobject]@{Role=$Role;Version=$manifest.version;Destination=$versionPath;Startup=[bool]$EnableStartup;Firewall=[bool]$EnableFirewall;Uninstaller=(Join-Path $InstallRoot 'Uninstall-VTubeInputBridge.cmd');UninstallKey=$uninstallKey;TrackingChanges=$false}; return }
 if ([IO.Path]::GetFullPath($InstallRoot) -ne [IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA 'VTubeControl'))) { throw 'InstallRoot overrides are supported only with PlanOnly' }
 if ($env:OS -ne 'Windows_NT') { throw 'Installation requires Windows; PlanOnly supports offline checks' }
 if (Test-Path -LiteralPath $versionPath) { throw 'This version already exists. Use its rollback record before reinstalling.' }
-if (Get-Process -Name VTubeControl -ErrorAction SilentlyContinue) { throw 'Exit VTube Control from its tray before installing. Leave the tracking bridge running.' }
-if ($EnableFirewall) {
- if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { throw 'Firewall installation requires an elevated PowerShell' }
- $ip=$null; if (-not [Net.IPAddress]::TryParse($PeerAddress,[ref]$ip) -or $PeerAddress -notmatch '^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)') { throw 'A private peer IPv4 address is required' }
-}
+if (Get-Process -Name VTubeControl -ErrorAction SilentlyContinue) { throw 'Exit VTube Input Bridge from its tray before installing.' }
+if ($EnableFirewall -and -not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { throw 'Firewall installation requires an elevated PowerShell' }
 $rootAclBefore=if(Test-Path -LiteralPath $InstallRoot){(Get-Acl -LiteralPath $InstallRoot).Sddl}else{$null}
 $settingsAclBefore=if(Test-Path -LiteralPath (Join-Path $env:APPDATA 'VTubeControl')){(Get-Acl -LiteralPath (Join-Path $env:APPDATA 'VTubeControl')).Sddl}else{$null}
 $id = (Get-Date -Format 'yyyyMMdd-HHmmss') + '-' + [guid]::NewGuid().ToString('N')
@@ -79,9 +81,26 @@ try {
   New-ItemProperty -Path $runKey -Name VTubeControl -Value $state.startupExpected -PropertyType String -Force | Out-Null
  }
  if ($EnableFirewall) {
-  $state.firewallName="VTubeControl-$id";Save-State
-  New-NetFirewallRule -Name $state.firewallName -DisplayName "VTube Control $Role $($manifest.version)" -Direction Inbound -Action Allow -Protocol TCP -LocalPort 5056 -RemoteAddress $PeerAddress -Program $exe -Profile Private | Out-Null
+  # Port rules on private networks from the local subnet; replaces earlier VTube Control rules. Removed by the uninstaller.
+  & (Join-Path $PackagePath 'Set-BridgeFirewall.ps1') -Role $Role -VersionsRoot (Split-Path $versionPath -Parent) | Out-Host
+  if ($LASTEXITCODE -ne 0) { throw 'Could not add the firewall rules' }
  }
+ # The role lets the next update (and a plain launch) pick the same PC without asking. No byte-order mark.
+ [IO.File]::WriteAllText((Join-Path $settings 'role.txt'),$Role,(New-Object Text.UTF8Encoding $false))
+ # Uninstaller beside the versions, and an Apps & features entry for it. Each install refreshes both.
+ foreach ($name in @('Uninstall-VTubeInputBridge.ps1','Restore-StreamPCRelay.ps1')) {
+  $source=Join-Path $PackagePath $name
+  if (Test-Path -LiteralPath $source) { Copy-Item -LiteralPath $source -Destination (Join-Path $InstallRoot $name) -Force }
+ }
+ $launcher=Join-Path $InstallRoot 'Uninstall-VTubeInputBridge.cmd'
+ # One line: cmd.exe re-reads a batch file after each line, and the uninstaller deletes this file.
+ [IO.File]::WriteAllText($launcher,"@cd /d `"%TEMP%`" & powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"%~dp0Uninstall-VTubeInputBridge.ps1`" %* & exit /b`r`n",[Text.Encoding]::ASCII)
+ $sizeKb=[int][Math]::Ceiling(((Get-ChildItem -LiteralPath $versionPath -Recurse -File | Measure-Object -Property Length -Sum).Sum)/1KB)
+ New-Item -Path $uninstallKey -Force | Out-Null
+ $entry=[ordered]@{DisplayName='VTube Input Bridge';DisplayVersion=[string]$manifest.version;Publisher='ChayzX';DisplayIcon="$exe,0";InstallLocation=$InstallRoot;UninstallString="`"$launcher`"";QuietUninstallString="`"$launcher`" -Quiet"}
+ foreach ($name in $entry.Keys) { New-ItemProperty -Path $uninstallKey -Name $name -Value $entry[$name] -PropertyType String -Force | Out-Null }
+ foreach ($name in @('NoModify','NoRepair')) { New-ItemProperty -Path $uninstallKey -Name $name -Value 1 -PropertyType DWord -Force | Out-Null }
+ New-ItemProperty -Path $uninstallKey -Name EstimatedSize -Value $sizeKb -PropertyType DWord -Force | Out-Null
  $state.complete=$true;Save-State
  Write-Host "Installed without launching. Rollback record: $(Join-Path $backup 'rollback.json')"
 } catch {
