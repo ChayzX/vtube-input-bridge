@@ -109,19 +109,28 @@ export class TrackingReceiver {
   if(await this.legacyRelayPresent().catch(()=>true)){this.state='Receiver stopped';this.lastError='The old VTube Input Relay scheduled task or process is still present. Complete the one-time Streaming PC migration, then launch this app again.';return;}
   await this.launch();this.timer=this.timers.setInterval(()=>this.poll().catch(()=>{}),this.interval);
  }
- // The Gaming PC's address: from the relay settings migrated off the old task, else from pairing. true when found,
- // false while waiting for pairing, null when the settings exist but are unusable.
+ // The Gaming PC's address: from pairing, which follows the Gaming PC when its address changes, else from the relay
+ // settings migrated off the old task. true when found, false while waiting for pairing, null when the migrated
+ // settings exist but are unusable.
  async findSource(){
+  try{const paired=this.pairedSource();if(paired){this.source=ipv4(paired);return true;}}catch{}
   let text;
   try{text=await this.readFile(this.configFile,'utf8');}
   catch(e){
    if(e.code!=='ENOENT'){this.state='Receiver stopped';this.lastError=`Could not read the Streaming PC relay settings: ${e.message}.`;return null;}
-   try{const paired=this.pairedSource();if(paired){this.source=ipv4(paired);return true;}}catch{}
    this.state='Waiting for pairing';this.lastError='';return false;
   }
   // Windows PowerShell writes UTF-8 with a byte-order mark, which JSON.parse rejects.
   try{this.source=ipv4(JSON.parse(stripBom(text)).source);return true;}
-  catch(e){this.state='Receiver stopped';this.lastError=`Streaming PC relay setup is incomplete: ${e.message}. Run Fix-StreamPC, or delete relay-config.json to take the Gaming PC address from pairing.`;return null;}
+  catch(e){this.state='Receiver stopped';this.lastError=`Streaming PC relay setup is incomplete: ${e.message}. Pair this PC with the Gaming PC under PC link, or run Fix-StreamPC.`;return null;}
+ }
+ // Pairing (or the Gaming PC's new address) changed the source: restart the relay to listen for the new address. A
+ // receiver still waiting for pairing picks it up by itself.
+ async sourceChanged(){
+  if(this.stopping||!this.child)return;
+  const before=this.source;if(await this.findSource()!==true||this.source===before)return;
+  this.restarts=0;const child=this.child;this.switching=true;child.stdin?.end();
+  this.timers.setTimeout(()=>{try{if(child.exitCode===null&&child.signalCode===null)child.kill();}catch{}},5000);
  }
  async launch(){
   if(this.stopping)return;
@@ -137,6 +146,7 @@ export class TrackingReceiver {
   child.once('close',(code,signal)=>{
    if(this.child!==child)return;this.child=null;this.process=false;
    if(this.now()-this.launchedAt>60000)this.restarts=0;
+   if(this.switching){this.switching=false;this.lastError='';if(!this.stopping)this.launch().catch(e=>{this.lastError=e.message;this.scheduleRestart();});return;}
    if(!this.stopping){this.lastError=this.lastError||`VTube Input Relay exited (code ${code??'none'}${signal?`, ${signal}`:''}).`;this.scheduleRestart();}
   });
  }

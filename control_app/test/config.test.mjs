@@ -1,5 +1,9 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {defaults,validateConfig,validatePair} from '../src/config.mjs';
-test('fresh companion has every feature on, but controls wait for LAN pairing',()=>{const c=defaults('pantry');assert.equal(c.enabled,false);for(const f of ['obs','vts','meld','spotify','reactive'])assert.equal(c[f].enabled,true,f);assert.equal(defaults('canada').reactive.enabled,false);validateConfig(defaults('canada'));assert.throws(()=>validateConfig({...c,enabled:true}));});
+test('fresh companion has every feature on, finds its own address, and keys for the other PC wait for pairing',()=>{const c=defaults('pantry');assert.equal(c.enabled,true);assert.equal(c.ownIp,'');assert.equal(c.peer,null);for(const f of ['obs','vts','meld','spotify','reactive','notify'])assert.equal(c[f].enabled,true,f);assert.deepEqual(c.updates,{auto:true,fromPeer:true});assert.equal(defaults('canada').reactive.enabled,false);validateConfig(c);validateConfig(defaults('canada'));});
+test('settings from before 1.0 drop the typed address and gain notifications and update settings',async()=>{const {upgradeConfig}=await import('../src/config.mjs');
+ const old={...defaults('canada'),enabled:false,ownIp:'10.0.0.119'};delete old.notify;delete old.updates;assert.throws(()=>validateConfig(old));
+ const up=validateConfig(upgradeConfig(old,'canada'));assert.equal(up.ownIp,'');assert.equal(up.enabled,false);assert.deepEqual(up.notify,{enabled:true});assert.deepEqual(up.updates,{auto:true,fromPeer:true});
+});
 test('peer imports require private IPv4, fixed service port and certificate pin',()=>{
  const good={host:'10.0.0.119',port:5056,pin:'a'.repeat(64),token:'b'.repeat(64)};assert.equal(validatePair(good).host,'10.0.0.119');
  for(const override of [{host:'8.8.8.8'},{host:'10.0.0.999'},{port:80},{pin:'anything'},{token:'short'}])assert.throws(()=>validatePair({...good,...override}));

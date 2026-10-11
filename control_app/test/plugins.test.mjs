@@ -155,6 +155,17 @@ test('a new Streaming PC with no migrated settings waits for pairing, then relay
  await receiver.stop();
 });
 
+test('the Streaming PC prefers the paired Gaming PC over old relay settings and follows it to a new address', async()=>{
+ let host='10.0.0.50';
+ const {receiver,calls}=receiverWith({config:'{"source":"10.0.0.112"}',status:{current:null},paired:()=>host});
+ await receiver.start();assert.deepEqual(calls.at(-1).args.slice(0,2),['--source','10.0.0.50']);
+ await receiver.sourceChanged();assert.equal(calls.length,1,'same address: no restart');
+ host='10.0.0.77';await receiver.sourceChanged();
+ for(let i=0;i<200&&calls.length<2;i++)await new Promise(r=>setTimeout(r,2));
+ assert.equal(calls.length,2);assert.deepEqual(calls[1].args.slice(0,2),['--source','10.0.0.77']);assert.equal(receiver.lastError,'');
+ await receiver.stop();
+});
+
 test('an unexpected relay exit is reported and restarted with backoff', async()=>{
  // The app runs the relay itself (vts_input_relay --managed) and reads the status file it writes.
  let file=null,spawned=0,child;const now=1_000_000;const timers=[];

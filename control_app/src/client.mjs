@@ -9,16 +9,21 @@ export function requestPeer(pair,method,path,body){
  const report=(ok,error)=>{try{observer({method,path,ms:performance.now()-started,ok,error,bytes});}catch{}};
  return send(pair,method,path,body).then(value=>{report(value?.ok!==false);return value;},error=>{report(false,error);throw error;});
 }
-function send(pair,method,path,body) {
- if(!pair||!/^[a-f0-9]{64}$/.test(pair.pin)||!/^[a-f0-9]{64}$/.test(pair.token)||!/^\d{1,3}(\.\d{1,3}){3}$/.test(pair.host)||!Number.isInteger(pair.port)||pair.port<1||pair.port>65535) return Promise.reject(new Error('Peer is not configured'));
+const configured=pair=>pair&&/^[a-f0-9]{64}$/.test(pair.pin)&&/^[a-f0-9]{64}$/.test(pair.token)&&/^\d{1,3}(\.\d{1,3}){3}$/.test(pair.host)&&Number.isInteger(pair.port)&&pair.port>=1&&pair.port<=65535;
+// Release the TLS socket to HTTP only after checking the exact certificate. No bearer token is sent to an unpinned peer.
+function pinnedAgent(pair){
  const agent=new https.Agent({keepAlive:false});
- // Release the TLS socket to HTTP only after checking the exact certificate. No bearer token is sent to an unpinned peer.
  agent.createConnection=(options,callback)=>{
   const socket=tls.connect({...options,rejectUnauthorized:false,minVersion:'TLSv1.2'});let completed=false;
   const done=(err)=>{if(completed)return;completed=true;if(err)socket.destroy();callback(err,err?undefined:socket);};
   socket.once('error',done);socket.setTimeout(5000,()=>done(new Error('Peer connection timeout')));
-  socket.once('secureConnect',()=>{const raw=socket.getPeerCertificate().raw;const pin=raw&&createHash('sha256').update(raw).digest();if(!pin||!timingSafeEqual(pin,Buffer.from(pair.pin,'hex')))done(new Error('Peer certificate mismatch'));else done(null);});
+  socket.once('secureConnect',()=>{socket.setTimeout(0);const raw=socket.getPeerCertificate().raw;const pin=raw&&createHash('sha256').update(raw).digest();if(!pin||!timingSafeEqual(pin,Buffer.from(pair.pin,'hex')))done(new Error('Peer certificate mismatch'));else done(null);});
  };
+ return agent;
+}
+function send(pair,method,path,body) {
+ if(!configured(pair)) return Promise.reject(new Error('Peer is not configured'));
+ const agent=pinnedAgent(pair);
  return new Promise((resolve,reject)=>{
   const binary=Buffer.isBuffer(body);const data=body===undefined?undefined:binary?body:Buffer.from(JSON.stringify(body));
   const req=https.request({hostname:pair.host,port:pair.port,method,path,agent,headers:{Authorization:`Bearer ${pair.token}`,...(data?{'Content-Type':binary?'image/png':'application/json','Content-Length':data.length}:{})}},res=>{
@@ -32,8 +37,8 @@ function send(pair,method,path,body) {
 // Refusals that come back as a bare code: from the link itself (wrong token or address, unknown route, from an older
 // version) or from the dispatcher before the action ran.
 const update='Update VTube Input Bridge on both PCs to the same version.';
-const refusals={unauthorized:'the pairing is out of date. Export each PC’s pairing file and import it on the other PC again.',
- forbidden:'this PC’s address does not match its pairing there. If this PC’s IP address changed, export its pairing file again and import it on the other PC.',
+const refusals={unauthorized:'the pairing is out of date. Pair the PCs again under PC link.',
+ forbidden:'it refused this PC’s address. Both PCs must be on the same home network.',
  not_found:`it does not support this request. ${update}`,invalid_request:`it could not read the request. ${update}`,invalid_target:`it could not read the request. ${update}`,
  invalid_command:`it could not read the request. ${update}`,too_large:'the request was too large.',id_conflict:'the request was refused as a duplicate. Press again.',
  expired:'the command expired before it could run; nothing happened. Press again.',invalid_expiry:`the command's time limit was refused. ${update}`,
@@ -44,4 +49,20 @@ export async function forwardCommand(pair,{expiresAt,...c},now=Date.now()){
  const result=await describing('the other PC',()=>requestPeer(pair,'POST','/command',{...c,target:'local',ttl:expiresAt-now}));
  if(!result.ok){const e=new Error('On the other PC: '+(result.message&&result.message!==result.code?result.message:refusals[result.code]||`refused (${String(result.code||'no reason given').slice(0,40)}). Update VTube Input Bridge on both PCs.`));e.code=result.code;e.publicMessage=e.message;throw e;}
  return result.data;
+}
+
+// Sends an installer to the other PC (PUT /update), streamed from disk. The other PC checks it, answers, then installs
+// it and restarts. Resolves with its answer ({ok, code, message}).
+export function pushUpdate(pair,{stream,size,sha256,version}){
+ if(!configured(pair))return Promise.reject(new Error('Peer is not configured'));
+ const agent=pinnedAgent(pair);
+ return new Promise((resolve,reject)=>{
+  const req=https.request({hostname:pair.host,port:pair.port,method:'PUT',path:'/update',agent,headers:{Authorization:`Bearer ${pair.token}`,'Content-Type':'application/octet-stream','Content-Length':size,'X-Update-Sha256':sha256,'X-Update-Version':version}},res=>{
+   const chunks=[];res.on('data',b=>{if(chunks.length<64)chunks.push(b);});
+   res.on('end',()=>{agent.destroy();try{resolve(JSON.parse(Buffer.concat(chunks).toString()));}catch{reject(new Error('The other PC gave an unreadable answer to the update.'));}});
+   res.on('error',reject);
+  });
+  req.setTimeout(120000,()=>req.destroy(new Error('The other PC stopped taking the update.')));req.on('error',e=>{agent.destroy();reject(e);});
+  stream.on('error',e=>req.destroy(e));stream.pipe(req);
+ });
 }
