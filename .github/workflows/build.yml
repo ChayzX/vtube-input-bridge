@@ -74,10 +74,16 @@ jobs:
         run: |
           version=$(node -p "require('./control_app/package.json').version")
           tag="v$version"
+          # A stable version (no "-preview"/"-rc" suffix) built from main is published as the latest release, which is
+          # what the app's "Check for updates" looks for. Anything else stays a draft pre-release.
+          if [[ "$version" != *-* && "$GITHUB_REF" == refs/heads/main ]]; then
+            kind=(--latest); notes="Installer for both PCs (it asks whether it is on the Gaming PC or the Streaming PC). Update both PCs."
+          else
+            kind=(--draft --prerelease); notes='Draft installer for both PCs (it asks whether it is on the Gaming PC or the Streaming PC). Not published.'
+          fi
           if ! gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release create "$tag" --repo "$GITHUB_REPOSITORY" --draft --prerelease --target "$GITHUB_SHA" \
-              --title "VTube Input Bridge $version" \
-              --notes 'Draft installer for both PCs (it asks whether it is on the Gaming PC or the Streaming PC). Not published.'
+            gh release create "$tag" --repo "$GITHUB_REPOSITORY" "${kind[@]}" --target "$GITHUB_SHA" \
+              --title "VTube Input Bridge $version" --notes "$notes"
           fi
           gh release upload "$tag" --repo "$GITHUB_REPOSITORY" --clobber \
             build/Install-VTubeInputBridge.cmd
