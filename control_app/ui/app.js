@@ -198,7 +198,7 @@ function appView(id,r){
  const where=localOn&&peerOn?'Both PCs':localOn?`${n.self} (this PC)`:peerOn?`${n.other}`:'Not turned on';
  const target=localOn?'local':peerOn?'peer':null;const place=target==='peer'?n.other:n.self;
  const base={id,name:app.name,settings:app.settings,where,target,localOn,peerOn,fix:app.fix(place)};
- if(r.linkError&&!localOn)return {...base,level:'off',badge:'Unavailable',detail:'Needs the PC link, which could not start.'};
+ if(r.linkError&&!localOn)return {...base,level:'off',badge:'Unavailable',unavailable:true,detail:'Needs the PC link, which could not start.'};
  if(!target)return {...base,level:'off',badge:'Off',detail:app.off};
  if(tests[id]?.busy)return {...base,level:'busy',badge:'Checking…',detail:`Asking ${app.name} on the ${place}…`};
  // The newest answer wins: a test from this window, or a Stream Deck press on either PC.
@@ -282,7 +282,7 @@ function renderCard(id,v,{test,go}={}){
  setText(fix,v.fix||'');setHidden(howto,!canFix);
  if(!canFix){setHidden(fix,true);howto?.setAttribute('aria-expanded','false');}
  if(test){setHidden(test,!v.target);setText(test,v.level==='warn'?'Retry':'Test');test.disabled=v.level==='busy';}
- if(go){const on=v.target||v.level!=='off';setText(go,on?'Settings':'Turn on');go.setAttribute('aria-label',on?v.settings:`Turn on ${v.name}`);}
+ if(go){const on=v.target||v.level!=='off'||v.unavailable;setText(go,on?'Settings':'Turn on');go.setAttribute('aria-label',on?v.settings:`Turn on ${v.name}`);}
 }
 let heroFn=null;
 function renderStatus(r){
