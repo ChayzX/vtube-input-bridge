@@ -9,8 +9,8 @@
 <body>
 <p class="status" id="status" role="status"><span class="dot" aria-hidden="true"></span><span id="statusText">Connecting to VTube Input Bridge…</span></p>
 
-<div class="field">
-  <label for="action">Action</label>
+<div class="field" id="actionField">
+  <label for="action" id="actionLabel">Action</label>
   <select id="action">
     <option value="obs.scene">OBS: switch scene</option>
     <option value="meld.scene">Meld Studio: switch scene</option>
@@ -43,6 +43,7 @@
 </div>
 
 <p class="message" id="message" aria-live="polite"></p>
+<p class="message" id="last" aria-live="polite" hidden></p>
 <script src="app.js"></script>
 </body>
 </html>

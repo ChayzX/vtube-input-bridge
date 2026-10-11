@@ -2,10 +2,106 @@
  "$schema": "https://schemas.elgato.com/streamdeck/plugins/manifest.json",
  "Actions": [
   {
-   "Name": "Bridge command",
+   "Name": "OBS scene",
+   "UUID": "com.chayzx.vtubecontrol.obs",
+   "Icon": "imgs/actions/obs",
+   "Tooltip": "Switch OBS to a scene on either PC",
+   "Controllers": [
+    "Keypad"
+   ],
+   "States": [
+    {
+     "Image": "imgs/keys/obs",
+     "TitleAlignment": "bottom",
+     "FontSize": 13
+    }
+   ]
+  },
+  {
+   "Name": "Meld Studio scene",
+   "UUID": "com.chayzx.vtubecontrol.meld",
+   "Icon": "imgs/actions/meld",
+   "Tooltip": "Switch Meld Studio to a scene on either PC",
+   "Controllers": [
+    "Keypad"
+   ],
+   "States": [
+    {
+     "Image": "imgs/keys/meld",
+     "TitleAlignment": "bottom",
+     "FontSize": 13
+    }
+   ]
+  },
+  {
+   "Name": "VTube Studio hotkey",
+   "UUID": "com.chayzx.vtubecontrol.vts",
+   "Icon": "imgs/actions/vts",
+   "Tooltip": "Trigger a VTube Studio hotkey or Item Scene on either PC",
+   "Controllers": [
+    "Keypad"
+   ],
+   "States": [
+    {
+     "Image": "imgs/keys/vts",
+     "TitleAlignment": "bottom",
+     "FontSize": 13
+    }
+   ]
+  },
+  {
+   "Name": "Spotify",
+   "UUID": "com.chayzx.vtubecontrol.spotify",
+   "Icon": "imgs/actions/spotify",
+   "Tooltip": "Play, pause or skip Spotify on either PC",
+   "Controllers": [
+    "Keypad"
+   ],
+   "States": [
+    {
+     "Image": "imgs/keys/spotify",
+     "TitleAlignment": "bottom",
+     "FontSize": 13
+    }
+   ]
+  },
+  {
+   "Name": "Show/hide reactives",
+   "UUID": "com.chayzx.vtubecontrol.reactives",
+   "Icon": "imgs/actions/reactives",
+   "Tooltip": "Show or hide the reactives on the Streaming PC",
+   "Controllers": [
+    "Keypad"
+   ],
+   "States": [
+    {
+     "Image": "imgs/keys/reactives",
+     "TitleAlignment": "bottom",
+     "FontSize": 13
+    }
+   ]
+  },
+  {
+   "Name": "Reactive renderer",
+   "UUID": "com.chayzx.vtubecontrol.renderer",
+   "Icon": "imgs/actions/renderer",
+   "Tooltip": "Start or stop the reactive renderer on the Gaming PC",
+   "Controllers": [
+    "Keypad"
+   ],
+   "States": [
+    {
+     "Image": "imgs/keys/renderer",
+     "TitleAlignment": "bottom",
+     "FontSize": 13
+    }
+   ]
+  },
+  {
+   "Name": "Advanced command",
    "UUID": "com.chayzx.vtubecontrol.command",
    "Icon": "imgs/control",
-   "Tooltip": "Control OBS, Spotify or VTube Studio on either PC",
+   "Tooltip": "Any VTube Input Bridge command, chosen from a list (the original all-in-one key)",
    "Controllers": [
     "Keypad"
    ],
@@ -20,13 +116,13 @@
  ],
  "Author": "ChayzX",
  "CodePath": "bin/plugin.mjs",
- "Description": "Optional LAN controls for the VTube Input Bridge setup.",
- "Name": "VTube Control",
+ "Description": "VTube Input Bridge keys: switch OBS or Meld Studio scenes, trigger VTube Studio hotkeys, control Spotify and reactives on either PC.",
+ "Name": "VTube Input Bridge",
  "Icon": "imgs/control",
- "Category": "VTube Control",
+ "Category": "VTube Input Bridge",
  "CategoryIcon": "imgs/control",
  "URL": "https://github.com/ChayzX/vtube-input-bridge",
- "Version": "0.2.2.0",
+ "Version": "1.0.0.0",
  "SDKVersion": 2,
  "Software": {
   "MinimumVersion": "7.1"
