@@ -2,7 +2,7 @@
 
 ## Lifecycle update (2026-10-07)
 
-Source version is now 0.3.0-preview.2. Canada relay ownership, task migration, and sender acknowledgement changes are implemented locally but have not been built, tested, or installed. The previous verification below describes the earlier preview only; it does not verify this update. No changes were made to either PC.
+Source version is now 0.3.0-preview.3. Canada relay ownership, task migration, and sender acknowledgement changes are implemented locally but have not been built, tested, or installed. The previous verification below describes the earlier preview only; it does not verify this update. No changes were made to either PC.
 
 Connection review: the prior Pantry `Sending` status was local-send evidence only. Preview.2 adds a sequence-matched acknowledgement after Canada accepts a packet and VTube Studio applies it; Pantry now distinguishes that from unconfirmed local sending. Canada still filters by the exact saved Pantry source IP and retries VTube Studio websocket failures every three seconds. The new app supervisor is intended to restart receiver exits. A wrong Pantry IP, a VTS authorization/API issue, or a blocked reply path still needs diagnosis and cannot be fixed by retrying alone. The Windows cross-build and the UDP reply under the installed PC firewall policy remain unverified.
 

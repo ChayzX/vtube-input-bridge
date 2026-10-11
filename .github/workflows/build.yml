@@ -72,10 +72,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          tag='v0.3.0-preview.2'
+          version=$(node -p "require('./control_app/package.json').version")
+          tag="v$version"
           if ! gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release create "$tag" --repo "$GITHUB_REPOSITORY" --draft --prerelease --target "$GITHUB_SHA" \
-              --title 'VTube Input Bridge 0.3.0-preview.2' \
+              --title "VTube Input Bridge $version" \
               --notes 'Draft installers for Pantry (gaming PC) and Canada (stream PC). Not published.'
           fi
           gh release upload "$tag" --repo "$GITHUB_REPOSITORY" --clobber \

@@ -26,7 +26,7 @@
  "Category": "VTube Control",
  "CategoryIcon": "imgs/control",
  "URL": "https://github.com/ChayzX/vtube-input-bridge",
- "Version": "0.2.0.1",
+ "Version": "0.2.1.0",
  "SDKVersion": 2,
  "Software": {
   "MinimumVersion": "7.1"

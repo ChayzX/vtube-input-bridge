@@ -1,6 +1,6 @@
 # VTube Control preview setup and rollback
 
-VTube Input Bridge 0.3.0-preview.2 includes the tracking app and owns the Stream PC relay process. The app runs in the signed-in user's session. Closing its window hides it in the tray; choosing **Exit VTube Input Bridge** stops the relay and app. It keeps using UDP 5055 and does not change OBS or VTube Studio settings. The one-click installer adds one firewall rule for the link between the PCs (below); nothing else changes firewall rules.
+VTube Input Bridge 0.3.0-preview.3 includes the tracking app and owns the Stream PC relay process. The app runs in the signed-in user's session. Closing its window hides it in the tray; choosing **Exit VTube Input Bridge** stops the relay and app. It keeps using UDP 5055 and does not change OBS or VTube Studio settings. The one-click installer adds one firewall rule for the link between the PCs (below); nothing else changes firewall rules.
 
 ## Install later, during an offline test window
 
@@ -45,8 +45,8 @@ Closing the app window keeps it in the tray. **Exit VTube Input Bridge** stops t
 1. Read Tracking on Canada first. **Waiting for VTube Studio** means open VTube Studio, enable its API, and approve **Game Input Relay** if it asks. **Waiting for gaming PC** means Canada is connected to VTube Studio but has not received recent input. **Receiver stopped** or **Restarting receiver** means the app is starting/recovering its relay.
 2. On Pantry, **Waiting for Stream PC** means the sender is running but has not received a recent acknowledgement. Check that Pantry is sending to Canada's current LAN address and that Canada's displayed Pantry source matches Pantry's current LAN address.
 3. If the PCs' addresses changed, restore their expected LAN addresses or update the saved receiver source and the existing restricted firewall rule through the normal setup process. Do not create broader firewall rules to make the warning disappear.
-4. Update both PCs to preview.2. An older Canada relay does not send acknowledgements, so Pantry will keep showing **Waiting for Stream PC** even if the older setup is otherwise working.
-5. If both PCs are on preview.2, both addresses match, and Canada says it is receiving input while Pantry remains waiting, the reply path is blocked. Record the exact messages on both PCs and stop there; the app does not change firewall rules automatically.
+4. Update both PCs to the same version (0.3.0-preview.3 or later). An older Canada relay does not send acknowledgements, so Pantry will keep showing **Waiting for Stream PC** even if the older setup is otherwise working.
+5. If both PCs are on the same version, both addresses match, and Canada says it is receiving input while Pantry remains waiting, the reply path is blocked. Check that the Windows network is set to Private on both PCs, since the installer's firewall rule only covers private networks, then record the exact messages on both PCs.
 
 ## Getting the separate tracking app back
 
