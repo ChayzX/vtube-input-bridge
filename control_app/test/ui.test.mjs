@@ -72,3 +72,16 @@ for(const [hash,expected] of [['',{metrics:0,logs:0}],['#metrics',{metrics:1,log
  await new Promise(r=>setTimeout(r,20));for(const fn of timers.splice(0))fn();await new Promise(r=>setTimeout(r,20));
  assert.deepEqual(calls,expected);
 });
+test('Copy status for support includes recent warnings and errors',async()=>{
+ const nodes={};const listeners={};const node=id=>nodes[id]??=fakeNode(id,listeners);let copied='';let asked;
+ const control={get:async()=>({role:'pantry',hostname:'CHASEBOT',version:'0.3.0',linkError:null,plugins:{tracking:{role:'sender'}},status:{services:{}},config:null}),tracking:async()=>({}),command:async()=>({ok:false}),
+  logs:async options=>{asked=options;return {entries:[{id:1,seq:1,t:Date.UTC(2026,9,11,20,7),level:'error',source:'obs',msg:'obs.scene failed: OBS rejected the password.',repeat:2}]};}};
+ vm.runInNewContext(await readFile(new URL('../ui/app.js',import.meta.url),'utf8'),{document:{getElementById:node,querySelectorAll:()=>[],createElement:()=>fakeNode('',listeners)},window:{control,addEventListener(){}},
+  navigator:{clipboard:{writeText:async text=>{copied=text;}}},setInterval(){},setTimeout:()=>0,clearTimeout(){},structuredClone,console});
+ await new Promise(r=>setTimeout(r,10));
+ await node('copyStatus').onclick();await new Promise(r=>setTimeout(r,10));
+ assert.deepEqual([...asked.levels],['error','warn']);
+ const status=JSON.parse(copied);assert.equal(status.hostname,'CHASEBOT');
+ assert.deepEqual(status.recentWarningsAndErrors,['2026-10-11T20:07:00.000Z ERROR obs      obs.scene failed: OBS rejected the password. (×2)']);
+ assert.match(node('toast').textContent,/1 recent warning/);
+});

@@ -405,7 +405,13 @@ for(const [id,fn] of [['export','exportPair'],['import','importPair'],['login','
   if(latest)window.control.get().then(r=>renderControls(r)).catch(()=>{});
  });
 el('copyOverlay').onclick=()=>copy(el('overlay').value,'Web Item URL copied.',el('overlay'));
-el('copyStatus').onclick=()=>{const r=latest||{};copy(JSON.stringify({role:r.role,hostname:r.hostname,peerName:peerStatus?.hostname||r.peerName,version:r.version,linkError:r.linkError,bindError:r.bindError,plugins:r.plugins,services:r.status?.services,peerError},null,2),'Status copied. Paste it into a message to get help.');};
+// Support status: the state of each feature, plus the latest warnings and errors from the log (already redacted).
+el('copyStatus').onclick=()=>busy(el('copyStatus'),async()=>{
+ const r=latest||{};let recent=[];
+ try{recent=((await window.control.logs?.({levels:['error','warn'],limit:30}))?.entries||[]).map(logLine);}catch{}
+ const status={role:r.role,hostname:r.hostname,peerName:peerStatus?.hostname||r.peerName,version:r.version,linkError:r.linkError,bindError:r.bindError,plugins:r.plugins,services:r.status?.services,peerError,recentWarningsAndErrors:recent.length?recent:'None'};
+ await copy(JSON.stringify(status,null,2),`Status copied${recent.length?` with ${recent.length} recent warning${recent.length===1?'':'s'} and errors`:''}. Paste it into a message to get help.`);
+});
 async function copy(text,done,field){
  try{await navigator.clipboard.writeText(text);toast(done);}
  catch{if(field){field.select();document.execCommand('copy');toast(done);}else toast('Could not copy.','err');}
