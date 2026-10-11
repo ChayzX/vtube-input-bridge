@@ -46,7 +46,7 @@ async function busy(button,fn){
 }
 
 // ---------- Navigation ----------
-const pages=['home','tracking','link','apps','deck','reactives','metrics','advanced'];
+const pages=['home','tracking','link','apps','deck','reactives','metrics','logs','advanced'];
 let current='home';
 function go(page,focusId){
  if(!pages.includes(page))page='home';
@@ -60,6 +60,7 @@ function go(page,focusId){
 // The Metrics (and Logs) pages fetch only while they are open.
 function pageShown(page){
  if(page==='metrics'){if(!metricsTimer)void pollMetrics();}else if(metricsTimer){clearTimeout(metricsTimer);metricsTimer=null;}
+ if(page==='logs'){if(!logState.timer)void pollLogs();}else if(logState.timer){clearTimeout(logState.timer);logState.timer=null;}
 }
 document.addEventListener?.('visibilitychange',()=>{if(document.visibilityState!=='hidden')pageShown(current);});
 for(const a of all('.nav a[data-page]'))a.addEventListener('click',e=>{e.preventDefault();go(a.dataset.page);el('main')?.focus?.({preventScroll:true});});
@@ -630,6 +631,88 @@ async function pollMetrics(){
 }
 el('metricsRange').onchange=()=>{metricsRange=Number(el('metricsRange').value)||300;for(const c of charts)c.hover=-1;renderMetrics();};
 window.addEventListener('resize',()=>{if(current==='metrics')for(const c of charts)drawChart(c);});
+
+// ---------- Logs ----------
+// A live tail of the main process's log, fetched once a second while this page is open (only entries that changed).
+// Filters, search and "Clear view" act on this view only; the log file keeps everything.
+const LEVEL_RANK={error:0,warn:1,info:2,debug:3};
+const SOURCE_NAMES={app:'App',tracking:'Tracking',peer:'PC link',api:'Stream Deck',obs:'OBS',vts:'VTube Studio',meld:'Meld',spotify:'Spotify',reactive:'Reactives'};
+const logState={entries:new Map(),since:0,clearedAt:0,paused:false,timer:null,sources:[],debug:false,debugSources:null,rows:new Map()};
+const logTime=t=>{const d=new Date(t);return d.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false});};
+function logMatches(e){
+ const level=el('logLevel').value||'info',source=el('logSource').value,query=el('logSearch').value.trim().toLowerCase();
+ return e.id>logState.clearedAt&&LEVEL_RANK[e.level]<=LEVEL_RANK[level]&&(!source||e.source===source)&&(!query||`${e.msg} ${e.source} ${e.level}`.toLowerCase().includes(query));
+}
+function logRow(e){
+ const row=make('div','log-row '+e.level);row.dataset.repeat=String(e.repeat);
+ const time=make('span','lt',logTime(e.t));time.title=new Date(e.t).toLocaleString();
+ const msg=make('span','lm',e.msg);if(e.repeat>1)msg.append(make('span','lr',`×${e.repeat}`));
+ row.append(time,make('span','lv',e.level==='warn'?'Warn':e.level),make('span','ls',SOURCE_NAMES[e.source]||e.source),msg);
+ return row;
+}
+function renderLogs(rebuild){
+ const box=el('logRows'),view=el('logView');if(!box?.append)return;
+const visible=[...logState.entries.values()].filter(logMatches);
+ if(rebuild){logState.rows.clear();box.replaceChildren(...visible.map(e=>{const r=logRow(e);logState.rows.set(e.id,r);return r;}));}
+ else for(const e of visible){
+  const old=logState.rows.get(e.id);
+  if(!old){const r=logRow(e);logState.rows.set(e.id,r);box.append(r);}
+  else if(old.dataset.repeat!==String(e.repeat)){const r=logRow(e);old.replaceWith(r);logState.rows.set(e.id,r);}
+ }
+ for(const [id,row] of logState.rows)if(!logState.entries.has(id)||!logMatches(logState.entries.get(id))){row.remove();logState.rows.delete(id);}
+ const total=[...logState.entries.values()].filter(e=>e.id>logState.clearedAt).length;
+ setHidden(el('logEmpty'),visible.length>0);setText(el('logEmpty'),total?'No entries match the filters':'No log entries yet');
+ setText(el('logCount'),visible.length===total?`${fmt(total)} entr${total===1?'y':'ies'}`:`${fmt(visible.length)} of ${fmt(total)} entries`);
+ if(el('logFollow').checked)view.scrollTop=view.scrollHeight;
+}
+function renderLogSettings(){
+ const debug=el('logDebug');if(debug.checked!==logState.debug)debug.checked=logState.debug;syncToggles();
+ const chips=el('logSources');
+ if(chips?.append&&chips.children.length!==logState.sources.length){
+  chips.replaceChildren(...logState.sources.map(source=>{const label=make('label','chip');const box=make('input');box.type='checkbox';box.value=source;box.onchange=saveLogging;label.append(box,make('span','',SOURCE_NAMES[source]||source));return label;}));
+  const select=el('logSource');select.replaceChildren(make('option','','All sources'),...logState.sources.map(source=>{const o=make('option','',SOURCE_NAMES[source]||source);o.value=source;return o;}));select.firstChild.value='';
+ }
+ for(const box of chips?.querySelectorAll?.('input')||[]){box.checked=!logState.debugSources||logState.debugSources.includes(box.value);box.disabled=!logState.debug;}
+ el('logSourcesRow')?.classList?.toggle('disabled',!logState.debug);
+}
+function mergeLogs(d){
+ if(!d)return false;let changed=false;
+ for(const e of d.entries||[]){logState.entries.set(e.id,e);logState.since=Math.max(logState.since,e.seq);changed=true;}
+ // The main process keeps 2000 entries; so does this view.
+ if(logState.entries.size>2000){const ids=[...logState.entries.keys()].sort((a,b)=>a-b);for(const id of ids.slice(0,logState.entries.size-2000))logState.entries.delete(id);}
+ const settings=JSON.stringify([d.debug,d.debugSources,d.sources]);
+ if(settings!==logState.settingsKey){logState.settingsKey=settings;Object.assign(logState,{debug:!!d.debug,debugSources:d.debugSources??null,sources:d.sources||[]});renderLogSettings();}
+ setHidden(el('logWriteError'),!d.writeError);setText(el('logWriteErrorText'),d.writeError?`The log file could not be written: ${d.writeError}. The entries below are still kept while the app runs.`:'');
+ return changed;
+}
+async function pollLogs(){
+ logState.timer=null;if(current!=='logs')return;
+ if(!logState.paused&&document.visibilityState!=='hidden'&&window.control.logs){
+  try{const first=!logState.settingsKey;if(mergeLogs(await window.control.logs({since:logState.since}))||first)renderLogs(first);}catch{}
+ }
+ if(current==='logs'&&!logState.timer)logState.timer=setTimeout(pollLogs,1000);
+}
+async function saveLogging(){
+ const sources=[...(el('logSources')?.querySelectorAll?.('input')||[])].filter(b=>b.checked).map(b=>b.value);
+ const value={debug:el('logDebug').checked,debugSources:sources.length===logState.sources.length?null:sources};
+ try{const saved=await window.control.setLogging(value);Object.assign(logState,{debug:!!saved.debug,debugSources:saved.debugSources??null});}
+ catch(e){toast(cleanError(e),'err');}
+ renderLogSettings();
+}
+for(const id of ['logLevel','logSource'])el(id).onchange=()=>renderLogs(true);
+el('logSearch').oninput=()=>renderLogs(true);
+el('logDebug').onchange=()=>{syncToggles();saveLogging();};
+el('logPause').onclick=()=>{
+ logState.paused=!logState.paused;const b=el('logPause');b.setAttribute('aria-pressed',String(logState.paused));
+ setText(el('logPauseText'),logState.paused?'Resume':'Pause');el('logPauseIcon')?.setAttribute('href',logState.paused?'#i-play':'#i-pause');
+ if(!logState.paused)void pollLogs();
+};
+el('logView').addEventListener('scroll',()=>{const v=el('logView');const atBottom=v.scrollHeight-v.scrollTop-v.clientHeight<24;if(el('logFollow').checked!==atBottom&&v.scrollHeight>v.clientHeight)el('logFollow').checked=atBottom;});
+el('logFollow').onchange=()=>{if(el('logFollow').checked)el('logView').scrollTop=el('logView').scrollHeight;};
+el('logClear').onclick=()=>{logState.clearedAt=Math.max(0,...logState.entries.keys());renderLogs(true);};
+const logLine=e=>`${new Date(e.t).toISOString()} ${e.level.toUpperCase().padEnd(5)} ${e.source.padEnd(8)} ${e.msg}${e.repeat>1?` (×${e.repeat})`:''}`;
+el('logCopy').onclick=()=>{const lines=[...logState.entries.values()].filter(logMatches).map(logLine);if(!lines.length)return toast('Nothing to copy.');copy(lines.join('\n'),`${fmt(lines.length)} log entr${lines.length===1?'y':'ies'} copied.`);};
+el('logOpen').onclick=()=>busy(el('logOpen'),async()=>{await window.control.openLogFolder();});
 
 // ---------- Start ----------
 go((globalThis.location?.hash||'').slice(1)||'home');

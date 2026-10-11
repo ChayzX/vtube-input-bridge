@@ -60,3 +60,15 @@ test('the other PC not answering shows on the PC link card, not as raw JSON',asy
  assert.equal(w.node('link-badge').textContent,'Not answering');assert.equal(w.node('link-detail').textContent,'Could not reach the other PC.');
  assert.ok(w.commands.some(c=>c.target==='peer'&&c.action==='bridge.status'));
 });
+// Logs poll at once and again a second later; Metrics waits for the first refresh (its layout depends on the role).
+for(const [hash,expected] of [['',{metrics:0,logs:0}],['#metrics',{metrics:1,logs:0}],['#logs',{metrics:0,logs:2}]])test(`metrics and logs are fetched only while their page is open (${hash||'home'})`,async()=>{
+ const calls={metrics:0,logs:0};
+ const nodes={};const fake=id=>nodes[id]??={id,value:'',checked:false,hidden:false,className:'',dataset:{},options:[],textContent:'',addEventListener(){},setAttribute(){},getAttribute:()=>null,removeAttribute(){},classList:{toggle(){},add(){},remove(){}},querySelector:()=>null,querySelectorAll:()=>[],closest:()=>null,replaceChildren(){},append(){},focus(){},scrollIntoView(){}};
+ const control={get:async()=>({role:'pantry',version:'0.3.0',linkError:null,plugins:{tracking:{role:'sender'}},status:{services:{}},config:null}),tracking:async()=>({}),command:async()=>({ok:false}),
+  metrics:async()=>{calls.metrics++;return {times:[],series:{},totals:{}};},logs:async()=>{calls.logs++;return {entries:[]};}};
+ const timers=[];
+ vm.runInNewContext(await readFile(new URL('../ui/app.js',import.meta.url),'utf8'),{document:{getElementById:fake,querySelectorAll:()=>[],createElement:()=>fake(''),visibilityState:'visible'},window:{control,addEventListener(){}},location:{hash},history:{replaceState(){}},
+  setInterval(){},setTimeout:fn=>{timers.push(fn);return timers.length;},clearTimeout(){},structuredClone,console});
+ await new Promise(r=>setTimeout(r,20));for(const fn of timers.splice(0))fn();await new Promise(r=>setTimeout(r,20));
+ assert.deepEqual(calls,expected);
+});

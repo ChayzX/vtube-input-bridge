@@ -5,5 +5,6 @@ contextBridge.exposeInMainWorld('control',{
  login:()=>ipcRenderer.invoke('control:login'), startReactive:()=>ipcRenderer.invoke('control:reactive-start'), stopReactive:()=>ipcRenderer.invoke('control:reactive-stop'),
  command:c=>ipcRenderer.invoke('control:command',c),
  tracking:(name,args)=>ipcRenderer.invoke('tracking:call',name,args),
- metrics:options=>ipcRenderer.invoke('control:metrics',options)
+ metrics:options=>ipcRenderer.invoke('control:metrics',options),
+ logs:options=>ipcRenderer.invoke('control:logs',options), setLogging:value=>ipcRenderer.invoke('control:set-logging',value), openLogFolder:()=>ipcRenderer.invoke('control:open-log-folder')
 });

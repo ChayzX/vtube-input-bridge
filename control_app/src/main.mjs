@@ -1,9 +1,9 @@
-import {app,BrowserWindow,Tray,Menu,ipcMain,dialog,safeStorage,nativeImage,nativeTheme} from 'electron';
+import {app,BrowserWindow,Tray,Menu,ipcMain,dialog,safeStorage,nativeImage,nativeTheme,shell} from 'electron';
 import {contextMenuTemplate} from './contextmenu.mjs';import {trayHealth} from './health.mjs';import {trayIconPng,TRAY_SIZES} from './trayicon.mjs';
 import {readFile,writeFile,mkdir,rename,copyFile} from 'node:fs/promises';import {join,dirname} from 'node:path';import {fileURLToPath} from 'node:url';import {randomBytes,randomUUID,createHash,X509Certificate} from 'node:crypto';import selfsigned from 'selfsigned';
 import {SerialQueue} from './serial.mjs';import {Retry} from './retry.mjs';import {checkDeadline} from './deadline.mjs';
 import {defaults,upgradeConfig,validateConfig,validateSave,parsePairingFile} from './config.mjs';import {Dispatcher} from './commands.mjs';import {FrameStore} from './frames.mjs';import {createApi,createOverlay} from './server.mjs';import {requestPeer,forwardCommand,observePeer} from './client.mjs';import {Metrics,outcomeKind} from './metrics.mjs';import {userError} from './errors.mjs';import {ReactiveRenderer,openFugiLogin} from './reactive.mjs';
-import {hostname as osHostname} from 'node:os';import {cleanHostname,pcLabel,peerHostname} from './names.mjs';
+import {hostname as osHostname} from 'node:os';import {cleanHostname,pcLabel,peerHostname,roleLabel} from './names.mjs';import {Logger,SOURCES} from './logger.mjs';
 import {PluginHost} from './plugins/host.mjs';import {TrackingSender,TrackingReceiver} from './plugins/tracking.mjs';import {createControlsPlugin} from './plugins/controls.mjs';import {createReactivesPlugin} from './plugins/reactives.mjs';
 
 // One app per PC. Features are plugins (plugins/*.mjs): tracking, Stream Deck controls and reactives. The core here
@@ -14,23 +14,48 @@ const here=dirname(fileURLToPath(import.meta.url));const dir=join(app.getPath('a
 let config=null,identity=null,linkError='Starting',window,tray,quitting=false,shutdownPromise=null,servers=[],last={};
 // This PC's Windows computer name, and the other PC's as it last reported it over the link.
 const hostname=cleanHostname(osHostname());let peerName='';
+// The app's log: memory for the Logs page, and a rolling file (2 × 1 MB) in the data folder. Debug logging is a
+// per-PC preference in logging.json, readable even when the encrypted settings are not.
+const logDir=join(dir,'logs');const loggingFile=join(dir,'logging.json');
+const log=new Logger({file:join(logDir,'vtube-input-bridge.log'),maxBytes:1024*1024,files:2,capacity:2000});
+// Anything still written to the console (from this app or a library) is kept in the log too.
+for(const [method,level] of [['error','error'],['warn','warn']]){const original=console[method].bind(console);console[method]=(...args)=>{original(...args);try{log.log(level,'app',args.map(a=>a instanceof Error?a.message:typeof a==='string'?a:JSON.stringify(a)).join(' '));}catch{}};}
+process.on('unhandledRejection',e=>log.error('app','Unhandled error: '+(e?.message||String(e))));
+// Known secret values are hidden from every log line, even where they have no recognisable shape (the OBS password).
+function updateSecrets(){log.setSecrets([identity?.localToken,identity?.networkToken,identity?.overlayToken,config?.peer?.token,config?.peer?.pin,config?.obs?.password,config?.vts?.token]);}
+const sourceOf=service=>SOURCES.includes(service)?service:'api';
 const frames=new FrameStore();
 // Per-second metrics for the Metrics page (15 minutes, memory only).
 const metrics=new Metrics({seconds:900});
 // Requests this PC makes to the other PC. Frame uploads are reactives, everything else is the PC link. Each request
 // counts once: answered (sent or received) or an error, so the Metrics page can stack them.
-observePeer(({method,path,ms,ok,bytes})=>{
+let peerAnswering=null;
+observePeer(({method,path,ms,ok,bytes,error})=>{
+ // Frames go up ten times a second, so only a failed one is worth a debug line.
+ if(method==='PUT'&&path==='/frame'){if(!ok&&log.enabled('debug','reactive'))log.debugLog('reactive',`Frame upload failed after ${Math.round(ms)} ms${error?`: ${error.message}`:''}`);}
+ else if(log.enabled('debug','peer'))log.debugLog('peer',`${method} ${path} to the other PC: ${ok?'ok':'failed'} in ${Math.round(ms)} ms${error?` (${error.message})`:''}`);
+ if(path!=='/frame'||method!=='PUT'){
+  // A failed command is logged with its action by run(); other requests are logged here.
+  if(!ok&&error&&path!=='/command')log.warn('peer',`${method} ${path} to the other PC failed: ${error.message}`);
+  if(!ok&&peerAnswering!==false&&error)log.warn('peer','The other PC stopped answering: '+error.message);
+  if(ok&&peerAnswering===false)log.info('peer','The other PC is answering again');
+  if(error||ok)peerAnswering=ok;
+ }
  if(method==='PUT'&&path==='/frame'){if(ok){metrics.count('reactive.frames');metrics.observe('reactive.uploadMs',ms);metrics.observe('reactive.frameBytes',bytes);}else metrics.count('reactive.errors');return;}
  metrics.count(ok?'peer.sent':'peer.errors');metrics.observe('peer.latency',ms);
 });
 // Requests to this PC: from the other PC on 5056 (frames received are reactives) and from the Stream Deck on 5057.
-function peerRequest({method,path,status,result,bytes}){
+function peerRequest({method,path,status,ms,result,bytes}){
+ if(log.enabled('debug','peer'))log.debugLog('peer',`${method} ${path} from the other PC: ${status}${result&&!result.ok?` ${result.code}`:''} in ${Math.round(ms)} ms`);
+ if(status===401||status===403)log.warn('peer',`Refused a request from the other PC (${status===401?'its pairing is out of date':'it came from an unexpected address'})`);
  if(method==='PUT'&&path==='/frame'){if(status===200){metrics.count('reactive.received');metrics.observe('reactive.frameBytes',bytes);}else metrics.count('reactive.errors');return;}
  metrics.count(status>=400||result?.ok===false?'peer.errors':'peer.received');
 }
 function localRequest({path,status,ms,result}){
  if(path!=='/command'){metrics.tally('api.other');return;}
  const kind=status===200?outcomeKind(result):'refused';metrics.count('api.'+kind);metrics.observe('api.ms',ms);
+ if(kind==='refused')log.info('api',`Stream Deck command refused: ${result?.code||'HTTP '+status}`);
+ else if(log.enabled('debug','api'))log.debugLog('api',`Stream Deck command ${kind} in ${Math.round(ms)} ms`);
  metrics.tally('api.code.'+(result?.ok?'ok':result?.code||'http_'+status));
 }
 // Once a second: close the metrics second, reading the tracking counters (they live in the helper or relay).
@@ -41,6 +66,15 @@ function sampleMetrics(){
  if(t.role==='sender')metrics.gauge('tracking.ackAge',t.running&&t.lastAckUnixMs>0?Math.min(Math.max(now-t.lastAckUnixMs,0),30000):NaN);
  else if(t.role==='receiver')metrics.gauge('tracking.packetAge',t.lastPacketUnixMs>0?Math.min(Math.max(now-t.lastPacketUnixMs,0),30000):NaN);
  metrics.tick();
+ noteChanges(t);
+}
+// Tracking, reactive renderer and PC link changes go to the log as they happen (checked once a second).
+let seen={};
+function noteChanges(t){
+ const tracking=[...new Set(t.role==='sender'?[t.state,t.connectionState,t.error]:[t.state,t.detail])].filter(Boolean).join(' · ');
+ if(tracking&&tracking!==seen.tracking){const bad=!!t.error||/Waiting|Restart|Blocked|Receiver stopped/i.test(tracking);seen.tracking=tracking;log.log(bad?'warn':'info','tracking',tracking);}
+ const state=renderer.state;
+ if(state!==seen.renderer){const first=seen.renderer===undefined;seen.renderer=state;if(!first||state!=='Stopped')log.log(/unavailable|needed|unresponsive|stopped;|not showing|too large/i.test(state)?'warn':'info','reactive','Renderer: '+state);}
 }const hex=()=>randomBytes(32).toString('hex');
 const renderer=new ReactiveRenderer(async png=>{if(!config?.enabled||!config.peer)throw Error('Disabled');const r=await requestPeer(config.peer,'PUT','/frame',png);if(!r.ok)throw Error('Upload rejected');});
 const transactions=new SerialQueue();
@@ -60,12 +94,13 @@ const host=new PluginHost();
 const status=()=>({hostname,enabled:!!config?.enabled,role:config?.role,peer:config?.peer?.host||'Not paired',services:last,reactive:renderer.state,frameFresh:!!frames.get(),linkError,bindError:bind.error,plugins:host.status()});
 async function run(c){
  if(!config?.enabled)throw userError('Remote controls are paused on this PC. Turn on "Remote controls" under PC link and save.','disabled');
- if(c.target==='peer'){if(!config.peer)throw userError('This PC is not paired with the other PC yet. Pair them under PC link first.','not_paired');const result=await forwardCommand(config.peer,c);if(c.action==='bridge.status')notePeer(result);return result;}
+ if(c.target==='peer'){if(!config.peer)throw userError('This PC is not paired with the other PC yet. Pair them under PC link first.','not_paired');let result;try{result=await forwardCommand(config.peer,c);}catch(e){log.warn('peer',`${c.action} on the other PC failed: ${e?.publicMessage||e?.message||e}`);throw e;}if(c.action==='bridge.status')notePeer(result);return result;}
  if(c.action==='bridge.status')return status();
  const deadline={expiresAt:c.expiresAt,assertActive:()=>{if(!config.enabled)throw userError("Remote controls were paused while this action was waiting.","disabled");}};checkDeadline(deadline);
  const service=c.action.split('.')[0];
- try{const result=await host.action(c.action,c.args,deadline);last[service]={ok:true,at:Date.now()};return result;}
- catch(e){last[service]={ok:false,at:Date.now()};throw e;}
+ const started=performance.now();
+ try{const result=await host.action(c.action,c.args,deadline);last[service]={ok:true,at:Date.now()};if(log.enabled('debug',sourceOf(service)))log.debugLog(sourceOf(service),`${c.action}: ok in ${Math.round(performance.now()-started)} ms`);return result;}
+ catch(e){last[service]={ok:false,at:Date.now()};log.warn(sourceOf(service),`${c.action} failed: ${e?.publicMessage||e?.message||e}`);throw e;}
 }
 const dispatcher=new Dispatcher(run);
 // The other PC's computer name comes with its status. An older version does not send one; the name from its pairing
@@ -91,7 +126,9 @@ async function startServers(){
 }
 // At sign-in the network may not have given this PC its address yet, so a failed bind is retried with backoff; it never
 // turns controls off. Each later restart of the servers (save, pairing, tray) goes through here too.
-const bind=new Retry(()=>transactions.run(async()=>{await startServers();autoStartRenderer();}),{onChange:error=>{updateTray();if(!error)void refreshPeerName();}});
+const bind=new Retry(()=>transactions.run(async()=>{await startServers();autoStartRenderer();}),{onChange:error=>{updateTray();
+ if(error!==seen.bind){if(error)log.warn('app',error);else if(config?.enabled)log.info('app',`Remote controls are listening on ${config.ownIp}:5056`);seen.bind=error;}
+ if(!error)void refreshPeerName();}});
 // Loads settings and identity and opens the secure link. A failure here disables only controls and reactives.
 async function startLink(role){
  if(!safeStorage.isEncryptionAvailable()||safeStorage.getSelectedStorageBackend?.()==='basic_text')throw Error('Secure credential storage unavailable');
@@ -120,14 +157,17 @@ function createWindow(){if(window&&!window.isDestroyed()){window.show();window.f
  window.removeMenu();window.once('ready-to-show',()=>window.show());
  window.webContents.setWindowOpenHandler(()=>({action:'deny'}));window.webContents.on('will-navigate',e=>e.preventDefault());
  window.webContents.on('context-menu',(_,params)=>{const items=contextMenuTemplate(params);if(items.length)Menu.buildFromTemplate(items).popup({window});});
+ window.webContents.on('render-process-gone',(_,details)=>log.error('app',`The window's renderer stopped (${details.reason}); reopen the window from the tray`));
+ window.on('unresponsive',()=>log.warn('app','The window is not responding'));
  window.loadFile(join(here,'..','ui','index.html'));
  window.on('close',e=>{if(!quitting){e.preventDefault();window.hide();}});
 }
-function ipc(name,handler){ipcMain.handle(name,async(event,...args)=>{if(event.sender!==window?.webContents||event.senderFrame!==window.webContents.mainFrame)throw Error('Unauthorized UI');return handler(...args);});}
+// A request from the window that fails is logged as well as shown there.
+function ipc(name,handler){ipcMain.handle(name,async(event,...args)=>{if(event.sender!==window?.webContents||event.senderFrame!==window.webContents.mainFrame)throw Error('Unauthorized UI');try{return await handler(...args);}catch(e){log.warn('app',`${name.replace(/^\w+:/,'')}: ${e?.message||e}`);throw e;}});}
 async function quit(){
  if(shutdownPromise)return shutdownPromise;
  quitting=true;
- shutdownPromise=(async()=>{bind.cancel();rendering.cancel();renderer.stop();await host.stopAll();await closeServers();app.quit();})();
+ shutdownPromise=(async()=>{log.info('app','Exiting');bind.cancel();rendering.cancel();renderer.stop();await host.stopAll();await closeServers();await log.flush();app.quit();})();
  return shutdownPromise;
 }
 
@@ -161,7 +201,7 @@ const key=JSON.stringify([self,health.line,health.tooltip,trackingSummary(),send
   ...(sender?[{label:t.running?'Stop sending':'Start sending',click:()=>host.ui('tracking',t.running?'stop':'start',{}).catch(e=>dialog.showErrorBox('Tracking',e.message))}]:[]),
   {type:'separator'},
   {label:`Open ${APP_NAME}`,click:createWindow},
-  {label:'Pause remote controls',enabled:!linkError&&!!config?.enabled,click:()=>transactions.run(async()=>{config.enabled=false;await saveProtected(settingsFile,config);}).then(()=>bind.run(),()=>dialog.showErrorBox('Could not save','Exit the app to stop controls immediately.'))},
+  {label:'Pause remote controls',enabled:!linkError&&!!config?.enabled,click:()=>transactions.run(async()=>{config.enabled=false;await saveProtected(settingsFile,config);}).then(()=>{log.info('app','Remote controls paused from the tray');return bind.run();},()=>dialog.showErrorBox('Could not save','Exit the app to stop controls immediately.'))},
   {label:`Exit ${APP_NAME}`,click:()=>{quit();}}
  ]));
 }
@@ -171,15 +211,17 @@ if(!app.requestSingleInstanceLock()){app.quit();}else{
  app.on('second-instance',createWindow);app.on('window-all-closed',()=>{});
  app.whenReady().then(async()=>{
   const role=await resolveRole();ownRole=role;
+  try{log.configure(JSON.parse((await readFile(loggingFile,'utf8')).replace(/^\uFEFF/,'')));}catch{}
+  log.info('app',`Starting ${APP_NAME} ${app.getVersion()} as the ${roleLabel(role)} on ${hostname||'this PC'}`);
   // 1. Tracking first: it needs nothing else from this app.
   host.add(role==='pantry'
    ?new TrackingSender({exe:join(here,'..','tracking','VTubeInputBridge.exe'),settingsFile:join(dir,'tracking.json')})
    :new TrackingReceiver({exe:join(here,'..','relay','vts_input_relay.exe'),configFile:join(dir,'relay-config.json'),tokenFile:join(process.env.LOCALAPPDATA||join(app.getPath('home'),'AppData','Local'),'VTubeInputRelay','vts-token.txt'),statusFile:join(process.env.LOCALAPPDATA||join(app.getPath('home'),'AppData','Local'),'VTubeInputRelay','status.json')}));
   await host.start('tracking');setInterval(sampleMetrics,1000);
   // 2. The secure link and the features that use it.
-  try{await startLink(role);linkError=null;}catch(e){linkError=e?.message||String(e);}
+  try{await startLink(role);linkError=null;updateSecrets();}catch(e){linkError=e?.message||String(e);log.error('app','The PC link could not start: '+linkError);}
   host.add(createControlsPlugin({getConfig:()=>config,linkError:()=>linkError,mediaExe:join(here,'..','media','SpotifyControl.exe'),
-   saveVtsToken:token=>transactions.run(async()=>{config.vts.token=token;await saveProtected(settingsFile,config);})}));
+   saveVtsToken:token=>transactions.run(async()=>{config.vts.token=token;updateSecrets();await saveProtected(settingsFile,config);log.info('vts','VTube Studio allowed VTube Control; its token was saved');})}));
   host.add(createReactivesPlugin({getConfig:()=>config,linkError:()=>linkError,renderer,frames,
    setVisible:(visible,deadline)=>transactions.runWithDeadline(deadline,async()=>{config.reactive.visible=visible;await saveProtected(settingsFile,config);return visible;}),
    clearPeerFrame:()=>requestPeer(config.peer,'DELETE','/frame'),stopped:()=>rendering.cancel()}));
@@ -189,16 +231,24 @@ if(!app.requestSingleInstanceLock()){app.quit();}else{
    config:config&&{...config,peer:config.peer?{host:config.peer.host,port:config.peer.port,pin:config.peer.pin,name:config.peer.name}:null,obs:{...config.obs,password:config.obs.password?'••••••••':''},vts:{...config.vts,token:undefined}},
    overlayUrl:identity?`http://127.0.0.1:5058/overlay/${identity.overlayToken}`:''}));
   // The role is fixed at install, and show/hide belongs to the Stream Deck; a save changes neither.
-  ipc('control:save',value=>{requireLink();return transactions.run(async()=>{const next={...value,role:config.role,peer:config.peer,obs:{...value.obs,password:value.obs.password==='••••••••'?config.obs.password:value.obs.password},vts:{...value.vts,token:config.vts.token},reactive:{...value.reactive,visible:config.reactive.visible}};validateSave(next);config=next;await saveProtected(settingsFile,config);}).then(async()=>{await bind.run();return status();});});
-  ipc('control:export',async()=>{requireLink();const chosen=await dialog.showSaveDialog(window,{title:'Export pairing file — contains a connection credential',defaultPath:`${config.role==='canada'?'streaming':'gaming'}-pc-pairing.json`});if(chosen.canceled)return;const pin=createHash('sha256').update(new X509Certificate(identity.cert.cert).raw).digest('hex');await writeFile(chosen.filePath,JSON.stringify({host:config.ownIp,port:5056,pin,token:identity.networkToken,name:hostname},null,2),{mode:0o600});return 'Exported. Transfer securely, import on the other PC, then delete the transfer copy.';});
-  ipc('control:import',async()=>{requireLink();const chosen=await dialog.showOpenDialog(window,{title:'Import the OTHER PC’s pairing file',properties:['openFile'],filters:[{name:'Pairing',extensions:['json']}]});if(chosen.canceled)return;const peer=parsePairingFile(await readFile(chosen.filePaths[0]));return transactions.run(async()=>{const first=!config.peer;validateConfig({...config,peer});config.peer=peer;peerName='';if(first)config.enabled=true;await saveProtected(settingsFile,config);return first;}).then(async first=>{await bind.run();return (first?'Paired. Remote controls are on.':'Paired')+(bind.error?' '+bind.error:'');});});
+  ipc('control:save',value=>{requireLink();return transactions.run(async()=>{const next={...value,role:config.role,peer:config.peer,obs:{...value.obs,password:value.obs.password==='••••••••'?config.obs.password:value.obs.password},vts:{...value.vts,token:config.vts.token},reactive:{...value.reactive,visible:config.reactive.visible}};validateSave(next);config=next;updateSecrets();await saveProtected(settingsFile,config);log.info('app','Settings saved');}).then(async()=>{await bind.run();return status();});});
+  ipc('control:export',async()=>{requireLink();const chosen=await dialog.showSaveDialog(window,{title:'Export pairing file — contains a connection credential',defaultPath:`${config.role==='canada'?'streaming':'gaming'}-pc-pairing.json`});if(chosen.canceled)return;const pin=createHash('sha256').update(new X509Certificate(identity.cert.cert).raw).digest('hex');await writeFile(chosen.filePath,JSON.stringify({host:config.ownIp,port:5056,pin,token:identity.networkToken,name:hostname},null,2),{mode:0o600});log.info('app','Pairing file exported');return 'Exported. Transfer securely, import on the other PC, then delete the transfer copy.';});
+  ipc('control:import',async()=>{requireLink();const chosen=await dialog.showOpenDialog(window,{title:'Import the OTHER PC’s pairing file',properties:['openFile'],filters:[{name:'Pairing',extensions:['json']}]});if(chosen.canceled)return;const peer=parsePairingFile(await readFile(chosen.filePaths[0]));return transactions.run(async()=>{const first=!config.peer;validateConfig({...config,peer});config.peer=peer;peerName='';if(first)config.enabled=true;updateSecrets();await saveProtected(settingsFile,config);log.info('app',`Paired with ${pcLabel({hostname:peer.name,role:config.role==='canada'?'pantry':'canada',ip:peer.host})}`);return first;}).then(async first=>{await bind.run();return (first?'Paired. Remote controls are on.':'Paired')+(bind.error?' '+bind.error:'');});});
   ipc('control:login',()=>{requireLink();if(config.role!=='pantry')throw Error('Sign in to Fugi on the Gaming PC, where reactives are rendered');openFugiLogin();return 'Fugi sign-in window opened';});
   ipc('control:reactive-start',async()=>{requireLink();return dispatcher.execute({id:randomUUID(),expiresAt:Date.now()+10000,target:'local',action:'reactive.start',args:{}});});
   ipc('control:reactive-stop',async()=>{requireLink();rendering.cancel();return dispatcher.execute({id:randomUUID(),expiresAt:Date.now()+10000,target:'local',action:'reactive.stop',args:{}});});
   ipc('control:command',c=>{requireLink();return dispatcher.execute({id:randomUUID(),expiresAt:Date.now()+10000,target:c.target,action:c.action,args:c.args||{}});});
   // The Metrics page asks once a second while it is open, for the points after the last one it has.
   ipc('control:metrics',({since=0}={})=>metrics.snapshot(Number(since)||0));
-  ipc('tracking:call',async(name,args)=>{const result=await host.ui('tracking',name,args);updateTray();return result;});
+  // The Logs page: entries changed since the last poll, and the debug logging preference.
+  ipc('control:logs',({since=0,levels,limit}={})=>({entries:log.entries({since:Number(since)||0,levels:Array.isArray(levels)?levels:undefined,limit:Number(limit)||undefined}),debug:log.debug,debugSources:log.debugSources,sources:SOURCES,folder:logDir,writeError:log.writeError}));
+  ipc('control:set-logging',async({debug,debugSources}={})=>{
+   log.configure({debug,debugSources});const value={debug:log.debug,debugSources:log.debugSources};
+   await mkdir(dir,{recursive:true});await writeFile(loggingFile,JSON.stringify(value));
+   log.info('app',value.debug?`Debug logging on${value.debugSources?' for '+(value.debugSources.join(', ')||'no sources'):''}`:'Debug logging off');return value;
+  });
+  ipc('control:open-log-folder',async()=>{await mkdir(logDir,{recursive:true});await log.flush();const error=await shell.openPath(logDir);if(error)throw new Error(error);return logDir;});
+  ipc('tracking:call',async(name,args)=>{if(name!=='status')log.info('tracking',`From the window: ${name}`+(name==='start'&&args?.destination?` to ${args.destination}`:''));const result=await host.ui('tracking',name,args);updateTray();return result;});
 
   tray=new Tray(trayIcon('warn'));trayLevel='warn';tray.on('double-click',createWindow);
   updateTray();setInterval(updateTray,2000);setInterval(()=>void refreshPeerName(),300000);
