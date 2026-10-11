@@ -96,17 +96,32 @@ function ipv4(value){const text=String(value??'').trim();if(isIP(text)!==4)throw
 // Stream PC: this app owns the relay child for the signed-in user. The legacy SYSTEM task
 // must be migrated before launch; keeping both would contend for UDP port 5055 and VTS authorization.
 export class TrackingReceiver {
- constructor({exe,configFile,tokenFile,statusFile,legacyRelayPresent=windowsLegacyRelayPresent,spawn=nodeSpawn,readFile=fsReadFile,removeFile=rm,now=Date.now,timers=globalThis,interval=1000,restartDelays=[1000,2000,5000,10000,30000]}){
-  Object.assign(this,{exe,configFile,tokenFile,statusFile,legacyRelayPresent,spawnFn:spawn,readFile,removeFile,now,timers,interval,restartDelays});
-  this.id='tracking';this.name='Tracking';this.process=false;this.data=null;this.timer=null;this.child=null;this.restartTimer=null;this.stopping=false;this.restarts=0;this.lastError='';this.source='';this.state='Starting receiver';
+ constructor({exe,configFile,tokenFile,statusFile,pairedSource=()=>null,legacyRelayPresent=windowsLegacyRelayPresent,spawn=nodeSpawn,readFile=fsReadFile,removeFile=rm,now=Date.now,timers=globalThis,interval=1000,restartDelays=[1000,2000,5000,10000,30000]}){
+  Object.assign(this,{exe,configFile,tokenFile,statusFile,pairedSource,legacyRelayPresent,spawnFn:spawn,readFile,removeFile,now,timers,interval,restartDelays});
+  this.id='tracking';this.name='Tracking';this.process=false;this.data=null;this.timer=null;this.child=null;this.restartTimer=null;this.stopping=false;this.restarts=0;this.lastError='';this.source='';this.state='Starting receiver';this.waitTimer=null;
  }
  async start(){
-  let config;
-  // Windows PowerShell writes UTF-8 with a byte-order mark, which JSON.parse rejects.
-  try{config=JSON.parse(stripBom(await this.readFile(this.configFile,'utf8')));this.source=ipv4(config.source);}
-  catch(e){this.state='Receiver stopped';this.lastError=`Streaming PC relay setup is incomplete: ${e.message}. Complete the one-time migration before launching this app.`;return;}
+  this.stopping=false;
+  const found=await this.findSource();
+  // A new Streaming PC has no migrated relay settings: it learns the Gaming PC's address from pairing, so it waits.
+  if(found===false){this.waitTimer=this.timers.setTimeout(()=>{this.waitTimer=null;if(!this.stopping)this.start().catch(e=>{this.lastError=e.message;});},this.interval);return;}
+  if(!found)return;
   if(await this.legacyRelayPresent().catch(()=>true)){this.state='Receiver stopped';this.lastError='The old VTube Input Relay scheduled task or process is still present. Complete the one-time Streaming PC migration, then launch this app again.';return;}
-  this.stopping=false;await this.launch();this.timer=this.timers.setInterval(()=>this.poll().catch(()=>{}),this.interval);
+  await this.launch();this.timer=this.timers.setInterval(()=>this.poll().catch(()=>{}),this.interval);
+ }
+ // The Gaming PC's address: from the relay settings migrated off the old task, else from pairing. true when found,
+ // false while waiting for pairing, null when the settings exist but are unusable.
+ async findSource(){
+  let text;
+  try{text=await this.readFile(this.configFile,'utf8');}
+  catch(e){
+   if(e.code!=='ENOENT'){this.state='Receiver stopped';this.lastError=`Could not read the Streaming PC relay settings: ${e.message}.`;return null;}
+   try{const paired=this.pairedSource();if(paired){this.source=ipv4(paired);return true;}}catch{}
+   this.state='Waiting for pairing';this.lastError='';return false;
+  }
+  // Windows PowerShell writes UTF-8 with a byte-order mark, which JSON.parse rejects.
+  try{this.source=ipv4(JSON.parse(stripBom(text)).source);return true;}
+  catch(e){this.state='Receiver stopped';this.lastError=`Streaming PC relay setup is incomplete: ${e.message}. Run Fix-StreamPC, or delete relay-config.json to take the Gaming PC address from pairing.`;return null;}
  }
  async launch(){
   if(this.stopping)return;
@@ -132,6 +147,7 @@ export class TrackingReceiver {
  }
  async stop(){
   this.stopping=true;if(this.timer)this.timers.clearInterval(this.timer);this.timer=null;
+  if(this.waitTimer)this.timers.clearTimeout(this.waitTimer);this.waitTimer=null;
   if(this.restartTimer)this.timers.clearTimeout(this.restartTimer);this.restartTimer=null;
   const child=this.child;if(!child||child.exitCode!==null||child.signalCode!==null){this.child=null;this.process=false;return;}
   const exited=new Promise(resolve=>child.once('close',resolve));child.stdin.end();
@@ -142,6 +158,7 @@ export class TrackingReceiver {
  status(){
   // bytes is null from a relay built before it reported bytes.
   const d=this.data;const base={role:'receiver',packets:Number(d?.packets_received)||0,bytes:Number.isFinite(d?.bytes_received)?d.bytes_received:null,lastPacketUnixMs:Number(d?.last_packet_unix_ms)||0,source:d?.source??this.source};
+  if(!this.process&&this.state==='Waiting for pairing')return {...base,state:'Waiting for pairing',detail:'Tracking starts once this PC is paired with the Gaming PC (PC link).'};
   if(!this.process)return {...base,state:this.state==='Restarting receiver'?'Restarting receiver':'Receiver stopped',detail:this.lastError||'The VTube Input Relay is not running.'};
   if(!d)return {...base,state:'Starting receiver',detail:this.lastError||'Waiting for status from the receiver.'};
   if(!d.vts_connected)return {...base,state:'Waiting for VTube Studio',detail:'Open VTube Studio and enable its API.'};

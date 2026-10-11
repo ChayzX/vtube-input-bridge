@@ -104,16 +104,16 @@ function fakeRelay(){
  };
  return {spawn,calls};
 }
-function receiverWith({config,legacy=false,status}){
+function receiverWith({config,legacy=false,status,paired=()=>null,timers={setInterval:()=>1,clearInterval:()=>{},setTimeout:()=>1,clearTimeout:()=>{}}}){
  const {spawn,calls}=fakeRelay();const now=1_000_000;
- const receiver=new TrackingReceiver({exe:'vts_input_relay.exe',configFile:'relay-config.json',statusFile:'status.json',
+ const receiver=new TrackingReceiver({exe:'vts_input_relay.exe',configFile:'relay-config.json',statusFile:'status.json',pairedSource:paired,
   tokenFile:join(tmpdir(),'vtube-relay-test','vts-token.txt'),legacyRelayPresent:async()=>legacy,spawn,removeFile:async()=>{},now:()=>now,
   readFile:async file=>{
    if(file==='relay-config.json'&&config!==undefined)return config;
    if(file==='status.json'&&status.current)return JSON.stringify(status.current);
    throw Object.assign(new Error('ENOENT'),{code:'ENOENT'});
   },
-  timers:{setInterval:()=>1,clearInterval:()=>{},setTimeout:()=>1,clearTimeout:()=>{}}});
+  timers});
  return {receiver,calls,now};
 }
 
@@ -132,13 +132,27 @@ test('stream PC relay reads settings written by Windows PowerShell (byte-order m
  await receiver.stop();assert.equal(receiver.status().state,'Receiver stopped');
 });
 
-test('stream PC relay does not start without its settings or beside the old task', async()=>{
- const missing=receiverWith({status:{current:null}});
- await missing.receiver.start();
- assert.equal(missing.calls.length,0);assert.match(missing.receiver.status().detail,/setup is incomplete/);
+test('stream PC relay does not start with broken settings or beside the old task', async()=>{
+ const broken=receiverWith({config:'{"source":"not an ip"}',status:{current:null}});
+ await broken.receiver.start();
+ assert.equal(broken.calls.length,0);assert.match(broken.receiver.status().detail,/setup is incomplete/);
  const legacy=receiverWith({config:'{"source":"10.0.0.112"}',legacy:true,status:{current:null}});
  await legacy.receiver.start();
  assert.equal(legacy.calls.length,0);assert.match(legacy.receiver.status().detail,/old VTube Input Relay/);
+});
+
+test('a new Streaming PC with no migrated settings waits for pairing, then relays from the paired Gaming PC', async()=>{
+ let host=null;const pending=[];
+ const timers={setInterval:()=>1,clearInterval:()=>{},setTimeout:fn=>{pending.push(fn);return pending.length;},clearTimeout:()=>{}};
+ const {receiver,calls}=receiverWith({status:{current:null},paired:()=>host,timers});
+ await receiver.start();
+ assert.equal(calls.length,0);assert.equal(receiver.status().state,'Waiting for pairing');assert.match(receiver.status().detail,/paired with the Gaming PC/);
+ // Each retry is a timer; run it and wait until it has either rescheduled itself or launched the relay.
+ const fire=async()=>{const before=calls.length;pending.shift()();for(let i=0;i<500&&!pending.length&&calls.length===before;i++)await new Promise(r=>setTimeout(r,2));};
+ await fire();assert.equal(calls.length,0);assert.equal(pending.length,1);
+ host='10.0.0.112';await fire();
+ assert.equal(calls.length,1);assert.deepEqual(calls[0].args.slice(0,2),['--source','10.0.0.112']);
+ await receiver.stop();
 });
 
 test('an unexpected relay exit is reported and restarted with backoff', async()=>{

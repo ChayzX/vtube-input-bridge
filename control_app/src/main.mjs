@@ -216,7 +216,7 @@ if(!app.requestSingleInstanceLock()){app.quit();}else{
   // 1. Tracking first: it needs nothing else from this app.
   host.add(role==='pantry'
    ?new TrackingSender({exe:join(here,'..','tracking','VTubeInputBridge.exe'),settingsFile:join(dir,'tracking.json')})
-   :new TrackingReceiver({exe:join(here,'..','relay','vts_input_relay.exe'),configFile:join(dir,'relay-config.json'),tokenFile:join(process.env.LOCALAPPDATA||join(app.getPath('home'),'AppData','Local'),'VTubeInputRelay','vts-token.txt'),statusFile:join(process.env.LOCALAPPDATA||join(app.getPath('home'),'AppData','Local'),'VTubeInputRelay','status.json')}));
+   :new TrackingReceiver({exe:join(here,'..','relay','vts_input_relay.exe'),configFile:join(dir,'relay-config.json'),pairedSource:()=>config?.peer?.host,tokenFile:join(process.env.LOCALAPPDATA||join(app.getPath('home'),'AppData','Local'),'VTubeInputRelay','vts-token.txt'),statusFile:join(process.env.LOCALAPPDATA||join(app.getPath('home'),'AppData','Local'),'VTubeInputRelay','status.json')}));
   await host.start('tracking');setInterval(sampleMetrics,1000);
   // 2. The secure link and the features that use it.
   try{await startLink(role);linkError=null;updateSecrets();}catch(e){linkError=e?.message||String(e);log.error('app','The PC link could not start: '+linkError);}

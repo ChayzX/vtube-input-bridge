@@ -93,6 +93,7 @@ function trackingView(t){
   case 'Receiving input':return {level:'ok',badge:'Receiving',title:'Receiving from the Gaming PC',detail:sentence(t.detail)+packets};
   case 'Waiting for VTube Studio':return {level:'warn',badge:'Waiting',title:'Waiting for VTube Studio',detail:sentence(t.detail),fix:'Open VTube Studio, turn on Start API in its settings, and click Allow if it asks about Game Input Relay.'};
   case 'Waiting for the Gaming PC':return {level:'warn',badge:'Waiting',title:'Waiting for the Gaming PC',detail:sentence(t.detail)+packets,fix:'On the Gaming PC, open VTube Input Bridge and start sending to this PC\'s address. The Gaming PC\'s address must match the one under Tracking here.'};
+  case 'Waiting for pairing':return {level:'warn',badge:'Not paired',title:'Waiting for pairing',detail:sentence(t.detail),fix:'Pair this PC with the Gaming PC under PC link. Tracking starts by itself once they are paired.'};
   case 'Receiver stopped':return {level:'err',badge:'Stopped',title:'The tracking receiver has stopped',detail:sentence(t.detail),fix:'If the message mentions the migration or relay setup, run Fix-StreamPC on this PC (see the setup guide). Otherwise restart VTube Input Bridge.'};
   default:return {level:'warn',badge:'Starting',title:t.state||'Starting the receiver…',detail:sentence(t.detail)};
  }

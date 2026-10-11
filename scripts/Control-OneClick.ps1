@@ -130,7 +130,8 @@ try {
                 $process = Start-Process -FilePath 'powershell.exe' -Verb RunAs -Wait -PassThru -ArgumentList $arguments
                 if ($process.ExitCode -ne 0) { throw 'Streaming PC relay migration did not complete. The old task must remain stopped/unchanged as reported; do not launch this app yet.' }
             } elseif (-not (Test-Path -LiteralPath $relayConfig)) {
-                throw 'The old VTube Input Relay task and migrated source config are both missing. Nothing can safely start tracking; ask for help before continuing.'
+                # A new Streaming PC: nothing to migrate. The app learns the Gaming PC's address when the PCs are paired.
+                Say 'New Streaming PC: tracking starts once this PC is paired with the Gaming PC (PC link in the app).'
             }
         }
         if (-not (Test-Path -LiteralPath $exe)) { & (Join-Path $extract 'Install-Control.ps1') -Role $Role -EnableStartup }

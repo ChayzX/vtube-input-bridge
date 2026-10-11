@@ -1,6 +1,6 @@
 {
   "name": "vtube-control",
-  "version": "0.3.0-preview.4",
+  "version": "0.3.0-preview.5",
   "private": true,
   "type": "module",
   "main": "src/main.mjs",
