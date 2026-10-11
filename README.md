@@ -83,7 +83,7 @@ On Linux, `cargo test --workspace --locked` tests the Rust workspace. With Mono 
 
 `control_app/`, `streamdeck_plugin/`, and `media_helper/` provide the app's Stream Deck controls and reactives plugins. The Gaming PC's Stream Deck can switch OBS or Meld Studio scenes, control Spotify and trigger saved VTube Studio hotkeys on either PC. A sandboxed Fugi renderer on the Gaming PC relays transparent PNGs to a VTube Studio Web Item on the Streaming PC.
 
-The app installs into versioned directories, and have a separate rollback script and backup record. No code automatically edits OBS scenes, VTS model mappings or Stream Deck profiles. Read [setup and rollback](docs/Control-Setup.md) and [build limits](docs/Control-Build-Status.md) before installing.
+The app installs into versioned directories and has a separate rollback script and backup record. No code automatically edits OBS scenes, VTS model mappings or Stream Deck profiles. Read [setup and rollback](docs/Control-Setup.md) and [build limits](docs/Control-Build-Status.md) before installing.
 
 **One installer for both PCs.** `build-controls.ps1` writes `build\Install-VTubeInputBridge.cmd` (about 200 MB, with the Stream Deck plugin; share it as a cloud-drive link). Double-click it on each PC as the signed-in user. It asks once which PC it is on (or knows from an earlier install), verifies its payloads' SHA256, retires the separate tracking app, installs into a versioned folder, adds the firewall rules (approval needed the first time only), registers an **Apps & features** entry for uninstalling, and on the Gaming PC hands the plugin to Stream Deck. Later updates come from **Advanced › Updates** in the app, which installs on both PCs. See [setup](docs/Control-Setup.md).
 5. Opens the app.
