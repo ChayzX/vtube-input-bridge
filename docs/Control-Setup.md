@@ -1,6 +1,6 @@
 # VTube Input Bridge setup and rollback
 
-VTube Input Bridge 0.3.0-preview.3 includes the tracking app and runs the Streaming PC's relay itself. The app runs in the signed-in user's session. Closing its window keeps it in the tray; choosing **Exit VTube Input Bridge** from the tray stops the relay and the app. It keeps using UDP 5055 and does not change OBS or VTube Studio settings. The one-click installer adds one firewall rule for the link between the PCs (below); nothing else changes firewall rules.
+VTube Input Bridge 0.3.0-preview.4 includes the tracking app and runs the Streaming PC's relay itself. The app runs in the signed-in user's session. Closing its window keeps it in the tray; choosing **Exit VTube Input Bridge** from the tray stops the relay and the app. It keeps using UDP 5055 and does not change OBS or VTube Studio settings. The one-click installer adds one firewall rule for the link between the PCs (below); nothing else changes firewall rules.
 
 In this guide the **Gaming PC** is the PC you play on, with the Stream Deck and Discord. The **Streaming PC** is the PC that runs VTube Studio and usually OBS.
 
@@ -63,7 +63,7 @@ Fugi's embed needs the local Discord app, so reactives are rendered on the Gamin
 1. Look at **Tracking** on the Streaming PC first. **Waiting for VTube Studio** means open VTube Studio, enable its API, and approve **Game Input Relay** if it asks. **Waiting for the Gaming PC** means VTube Studio is connected but no recent input has arrived. **Receiver stopped** or **Restarting receiver** means the app is starting or recovering its relay.
 2. On the Gaming PC, **Waiting for the Streaming PC** means the sender is running but has had no recent acknowledgement. Check that it is sending to the Streaming PC's current address, and that the address the Streaming PC accepts tracking from matches the Gaming PC's current address.
 3. If the PCs' addresses changed, give them back their expected addresses (a reserved address in the router helps), or update the saved receiver source and the firewall rule by reinstalling. Do not create broader firewall rules to make the warning go away.
-4. Update both PCs to the same version (0.3.0-preview.3 or later). An older Streaming PC relay does not send acknowledgements, so the Gaming PC keeps showing **Waiting for the Streaming PC** even when tracking works.
+4. Update both PCs to the same version (0.3.0-preview.4 or later). An older Streaming PC relay does not send acknowledgements, so the Gaming PC keeps showing **Waiting for the Streaming PC** even when tracking works.
 5. If both PCs are on the same version, the addresses match, and the Streaming PC says it is receiving input while the Gaming PC keeps waiting, the reply path is blocked. Check that the Windows network is set to Private on both PCs, since the firewall rule only covers private networks, then note the exact messages on both PCs.
 
 ## Getting the separate tracking app back
