@@ -14,3 +14,9 @@ test('the stored role follows the role the PC was installed as',async()=>{const 
  const switched={...defaults('pantry'),role:'canada',ownIp:'10.0.0.119'};const pantry=upgradeConfig({...switched,role:'pantry',reactive:{enabled:true,url:'',visible:true}},'canada');
  assert.equal(pantry.role,'canada');assert.equal(pantry.reactive.enabled,false);validateConfig(pantry);
  assert.equal(upgradeConfig(defaults('pantry'),'pantry').reactive.enabled,true);assert.equal(upgradeConfig({...defaults('canada'),meld:undefined},'canada').meld.enabled,true);});
+test('an imported file that is not JSON is refused with a sentence, not a parser error',async()=>{
+ const {parsePairingFile}=await import('../src/config.mjs');const good={host:'10.0.0.119',port:5056,pin:'a'.repeat(64),token:'b'.repeat(64)};
+ assert.equal(parsePairingFile(Buffer.from(JSON.stringify(good))).host,'10.0.0.119');
+ assert.throws(()=>parsePairingFile(Buffer.from('not json')),e=>/not a pairing file/.test(e.message)&&!/SyntaxError|Unexpected token/.test(e.message));
+ assert.throws(()=>parsePairingFile(Buffer.alloc(9000)),/too large/);
+});

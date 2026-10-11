@@ -11,6 +11,12 @@ export function upgradeConfig(c,role){
  return c;
 }
 export function validatePair(p){if(!p||!privateIp(p.host)||p.port!==5056||!/^[a-f0-9]{64}$/.test(p.pin)||!/^[a-f0-9]{64}$/.test(p.token))throw new Error('Invalid pairing file: private IPv4, port 5056, token and certificate pin required');return {host:p.host,port:p.port,pin:p.pin,token:p.token};}
+// Reads an imported pairing file (bytes as read from disk).
+export function parsePairingFile(bytes){
+ if(bytes.length>8192)throw new Error('Pairing file too large');
+ let value;try{value=JSON.parse(bytes.toString('utf8'));}catch{throw new Error('That is not a pairing file. Choose the file exported with “Export this PC’s pairing file” on the other PC.');}
+ return validatePair(value);
+}
 export function validateConfig(c){
  if(c?.version!==1||!['pantry','canada'].includes(c.role)||typeof c.enabled!=='boolean'||!privateIp(c.ownIp))throw new Error('Choose a role and this PC’s private IPv4 address');
  for(const section of ['obs','vts','spotify','reactive','meld'])if(typeof c[section]?.enabled!=='boolean')throw new Error('Invalid feature setting');
