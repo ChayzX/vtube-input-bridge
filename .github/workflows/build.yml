@@ -77,11 +77,10 @@ jobs:
           if ! gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release create "$tag" --repo "$GITHUB_REPOSITORY" --draft --prerelease --target "$GITHUB_SHA" \
               --title "VTube Input Bridge $version" \
-              --notes 'Draft installers for the Gaming PC and the Streaming PC. Not published.'
+              --notes 'Draft installer for both PCs (it asks whether it is on the Gaming PC or the Streaming PC). Not published.'
           fi
           gh release upload "$tag" --repo "$GITHUB_REPOSITORY" --clobber \
-            build/Install-VTubeInputBridge-GamingPC.cmd \
-            build/Install-VTubeInputBridge-StreamPC.cmd
+            build/Install-VTubeInputBridge.cmd
       # Installers ship through the draft release above. This copy is a convenience: the bundle is several hundred MB,
       # so a full artifact storage quota must not fail the build, and it expires after a day.
       - uses: actions/upload-artifact@v4
@@ -93,4 +92,4 @@ jobs:
           path: |
             build/VTubeControl-*.zip
             build/*.streamDeckPlugin
-            build/Install-VTubeInputBridge-*.cmd
+            build/Install-VTubeInputBridge.cmd

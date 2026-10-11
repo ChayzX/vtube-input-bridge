@@ -30,5 +30,5 @@ if (-not $SkipTests) {
 }
 Checked { node scripts/build-controls.mjs }
 Checked { streamdeck_plugin/node_modules/.bin/streamdeck pack streamdeck_plugin/com.chayzx.vtubecontrol.sdPlugin -o build }
-Checked { pwsh -NoProfile -File scripts/New-ControlInstaller.ps1 -Role pantry }
-Checked { pwsh -NoProfile -File scripts/New-ControlInstaller.ps1 -Role canada }
+# One installer for both PCs: it asks which PC it is on (or reads VTC_ROLE / the existing install).
+Checked { pwsh -NoProfile -File scripts/New-ControlInstaller.ps1 }

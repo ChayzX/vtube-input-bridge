@@ -13,13 +13,14 @@ pause
 exit /b %VTF_RESULT%
 
 #VTF-SCRIPT#
-# Repairs the stream PC after a half-finished update and finishes it with the newest StreamPC installer.
+# Repairs the stream PC after a half-finished update and finishes it with the newest installer.
 # The relay migration had removed the old SYSTEM task, but relay-config.json (the gaming PC address the app's own relay
 # needs) went missing, so the installer stopped; and Restore-SeparateTracking, finding no task, took this PC for the
 # gaming PC and set up the sender here. This script:
 #   1. stops the app and the wrongly restored sender, removes the sender from sign-in and its shortcuts (set aside);
 #   2. recreates relay-config.json from the migration record (else the old firewall rule, else 10.0.0.112);
-#   3. runs the newest Install-VTubeInputBridge-StreamPC.cmd from Downloads or Desktop, then reports.
+#   3. runs the newest Install-VTubeInputBridge.cmd (or older -StreamPC.cmd) from Downloads or Desktop as the
+#      Streaming PC, then reports.
 # If the old task is still there, it skips 1-2 and only runs the installer, which migrates the task.
 # Run it as the signed-in streaming user, without administrator rights. It never deletes program files. Keep it
 # Windows PowerShell 5.1 compatible, plain ASCII, and free of the percent sign: Fix-StreamPC.cmd embeds it.
@@ -47,12 +48,14 @@ $runKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
 try {
     Say 'Fixing the stream PC and finishing the update...' 'Cyan'
 
-    # 0. Find the newest StreamPC installer first, so nothing changes if it is missing.
+    # 0. Find the newest installer first, so nothing changes if it is missing. The one installer serves both PCs;
+    #    older builds had a separate StreamPC file. The Gaming PC file is never used here.
     $installer = @((Join-Path $env:USERPROFILE 'Downloads'), [Environment]::GetFolderPath('DesktopDirectory')) |
         Where-Object { $_ -and (Test-Path -LiteralPath $_) } |
-        ForEach-Object { Get-ChildItem -LiteralPath $_ -Filter 'Install-VTubeInputBridge-StreamPC*.cmd' -Recurse -Depth 3 -ErrorAction SilentlyContinue } |
+        ForEach-Object { Get-ChildItem -LiteralPath $_ -Filter 'Install-VTubeInputBridge*.cmd' -Recurse -Depth 3 -ErrorAction SilentlyContinue } |
+        Where-Object { $_.Name -notlike '*GamingPC*' } |
         Sort-Object LastWriteTime -Descending | Select-Object -First 1
-    if (-not $installer) { throw 'Install-VTubeInputBridge-StreamPC.cmd was not found in Downloads or on the Desktop. Put the newest one there and run this again. Nothing was changed.' }
+    if (-not $installer) { throw 'Install-VTubeInputBridge.cmd was not found in Downloads or on the Desktop. Put the newest one there and run this again. Nothing was changed.' }
     Say ('Using installer: ' + $installer.FullName + ' (' + $installer.LastWriteTime + ')')
     # With the old task still present the installer migrates it, and the migration refuses an existing
     # relay-config.json, so the repairs below (meant for a PC whose task is gone) are skipped.
@@ -136,11 +139,13 @@ try {
         }
     }
 
-    # 3. Finish the update with the newest installer. Its own "press any key" is skipped (input from NUL).
+    # 3. Finish the update with the newest installer, as the Streaming PC (VTC_ROLE, so it does not ask). Its own
+    #    "press any key" is skipped (input from NUL).
     Say ''
-    Say 'Running the StreamPC installer...' 'Cyan'
+    Say 'Running the installer for the Streaming PC...' 'Cyan'
+    $env:VTC_ROLE = 'canada'
     $process = Start-Process -FilePath 'cmd.exe' -ArgumentList ('/d /c ""' + $installer.FullName + '" < NUL"') -NoNewWindow -Wait -PassThru
-    if ($process.ExitCode -ne 0) { throw ('The StreamPC installer reported a problem (exit code ' + $process.ExitCode + '). Its messages are above.') }
+    if ($process.ExitCode -ne 0) { throw ('The installer reported a problem (exit code ' + $process.ExitCode + '). Its messages are above.') }
     $done = 'The stream PC is fixed and updated. VTube Input Bridge is open in the tray; its Tracking section should say Receiving input while the gaming PC sends. If VTube Studio asks to allow "Game Input Relay", click Allow.'
     Say ''
     Say $done 'Green'

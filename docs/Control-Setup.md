@@ -1,27 +1,46 @@
 # VTube Input Bridge setup and rollback
 
-VTube Input Bridge 0.3.0-preview.5 includes the tracking app and runs the Streaming PC's relay itself. The app runs in the signed-in user's session. Closing its window keeps it in the tray; choosing **Exit VTube Input Bridge** from the tray stops the relay and the app. It keeps using UDP 5055 and does not change OBS or VTube Studio settings. The one-click installer adds one firewall rule for the link between the PCs (below); nothing else changes firewall rules.
+VTube Input Bridge includes the tracking app and runs the Streaming PC's relay itself. The app runs in the signed-in user's session. Closing its window keeps it in the tray; choosing **Exit VTube Input Bridge** from the tray stops the relay and the app. It keeps using UDP 5055 and does not change OBS or VTube Studio settings. The installer adds firewall rules so the two PCs can reach each other (below); nothing else changes firewall rules.
 
 In this guide the **Gaming PC** is the PC you play on, with the Stream Deck and Discord. The **Streaming PC** is the PC that runs VTube Studio and usually OBS.
 
 ## Installing
 
-`Install-VTubeInputBridge-GamingPC.cmd` and `Install-VTubeInputBridge-StreamPC.cmd` (made by `scripts/New-ControlInstaller.ps1`) install the app for the signed-in user and start it. Install them while you are not streaming.
+There is one installer for both PCs: `Install-VTubeInputBridge.cmd` (made by `scripts/New-ControlInstaller.ps1`). Double-click it as the signed-in user, on each PC, while you are not streaming.
 
-- On the Streaming PC, the installer asks once for Windows administrator approval. It saves the old relay task and its source address, then stops and removes only the old `VTube Input Relay` scheduled task.
-- On both PCs it also asks for approval to add an inbound rule for this version of the app on TCP 5056 (private networks, local subnet, group **VTube Input Bridge**), replacing the previous version's rule. If you decline, Windows asks when the app first listens: allow VTube Input Bridge on private networks, or the other PC cannot connect.
-- The installer and the app themselves run without administrator rights. The app uses a new per-user VTube Studio token, so VTube Studio may ask for approval again. The old ProgramData executable and token are kept for rollback. Do not run `Install-StreamPC.ps1` again.
+- **Which PC is this?** The installer asks once, with two buttons: **Gaming PC** (plays the game, has the Stream Deck) or **Streaming PC** (runs OBS and VTube Studio). It does not ask when it already knows: on a PC that has the app it uses the saved role, and a PC with the old `VTube Input Relay` task is the Streaming PC.
+- **Streaming PC, first time from the old setup:** Windows asks once for administrator approval. The installer saves the old relay task and its Gaming PC address, then stops and removes only that task. If the app is running, the installer closes it for this step and opens it again afterwards. If it fails, the reason is shown and the old task is left as it was. A brand-new Streaming PC needs nothing extra: tracking starts once the PCs are paired.
+- **Gaming PC:** the installer hands the Stream Deck plugin to Stream Deck, which asks you to confirm.
+- **Firewall (both PCs):** the first time, Windows asks for approval to add inbound rules: **VTube Input Bridge (PC link)** (TCP 5056), **VTube Input Bridge (pairing)** (TCP and UDP 5059) and, on the Streaming PC, **VTube Input Bridge (tracking)** (UDP 5055). They allow these ports only on private networks and only from your local network, so they keep working when the other PC's address changes or the app is updated. Older VTube Control rules are replaced. Later installs ask again only if the rules are missing or changed. If you say no, the PCs cannot reach each other: run the installer again and accept the prompt. The network must be set to Private in Windows.
+- The installer and the app themselves run without administrator rights. On the Streaming PC, VTube Studio may ask once to allow **Game Input Relay**.
 
-When the installer finishes, it reports the result in a dialog. On success, clicking **OK** opens the app and the installer window closes by itself. On failure the installer window stays open with the details; take a screenshot, then close it with its X button. For scripted installs, set `VTC_QUIET=1` to skip the dialog.
+When it finishes, a dialog reports the result. On success, clicking **OK** opens the app and the installer window closes. On failure the window stays open with the details; take a screenshot, then close it with its X button.
 
-If a Streaming PC update stopped halfway (the old task is gone but the app says the relay setup is incomplete, or the restore tool set up the Gaming PC sender on it), run `scripts/Fix-StreamPC.cmd` there as the signed-in user, with the newest StreamPC installer in Downloads or on the Desktop. It recreates `relay-config.json` from the migration record and runs that installer. If the old task is still present it only runs the installer, which migrates the task.
+For scripted installs: `VTC_ROLE=pantry` (Gaming PC) or `VTC_ROLE=canada` (Streaming PC) skips the question; `VTC_QUIET=1` shows no dialogs at all (the role must then come from `VTC_ROLE` or an existing install). Exit codes: 0 installed, 1 failed, 2 cancelled, 3 the PC could not be identified.
+
+If a Streaming PC update stopped halfway (the old task is gone but the app says the relay setup is incomplete, or the restore tool set up the Gaming PC sender on it), run `scripts/Fix-StreamPC.cmd` there as the signed-in user, with the newest installer in Downloads or on the Desktop. It recreates `relay-config.json` from the migration record and runs that installer as the Streaming PC.
+
+## Updating
+
+Run the newest `Install-VTubeInputBridge.cmd` the same way; it keeps the PC's role, settings and pairing.
+
+The app's own updater runs the same file with `VTC_UPDATE=1`. That mode never shows a dialog or a Windows prompt: it reads the role from `%APPDATA%\VTubeControl\role.txt`, waits up to 20 seconds for the app to close (then closes it), installs, writes the outcome to `%LOCALAPPDATA%\VTubeControl\last-update.json` (`version`, `ok`, `message`, `at`) and starts the app again in the tray. Because it cannot ask for approval, two things still need a double-click of the installer: the one-time Streaming PC relay migration, and firewall rules that are missing (for example because the prompt was declined at install). The app shows the message when that is needed. A newer Stream Deck plugin is also left for you to install when you are not streaming.
 
 ### Installing by hand
 
-1. Verify the ZIP checksum and extract the package for the PC. Exit the running VTube Input Bridge from its tray first.
-2. In PowerShell, run `./Install-Control.ps1`. It installs into `%LOCALAPPDATA%\VTubeControl\versions\<version>`, creates Desktop and Start menu **VTube Input Bridge** shortcuts, and records backups. It does not launch the app, enable startup, or add a firewall rule by default.
-3. Optional flags: `-EnableStartup` adds a per-user Run entry; `-EnableFirewall -PeerAddress <other-PC-IP>` creates a private-network inbound TCP 5056 rule. The firewall option needs an elevated PowerShell under the same Windows account that will run the app. Confirm both PCs' current addresses first.
-4. On the Streaming PC, run `Migrate-StreamPCRelay.ps1` as administrator once before opening the new app. It reads only the Gaming PC's address from the old task, keeps the task XML (and any earlier relay-config.json) under `%LOCALAPPDATA%\VTubeControl\retired`, and if it fails the installer shows the reason. If the task is already gone, use the existing `%APPDATA%\VTubeControl\relay-config.json`; do not guess an address.
+1. Extract the package ZIP. Exit the running VTube Input Bridge from its tray first.
+2. In PowerShell, run `./Install-Control.ps1 -Role pantry` (Gaming PC) or `-Role canada` (Streaming PC). It installs into `%LOCALAPPDATA%\VTubeControl\versions\<version>`, creates Desktop and Start menu **VTube Input Bridge** shortcuts, saves the role, installs the uninstaller and records backups. It does not launch the app, enable startup, or add firewall rules by default.
+3. Optional flags: `-EnableStartup` adds a per-user Run entry; `-EnableFirewall` adds the firewall rules above (needs an elevated PowerShell under the same Windows account that will run the app).
+4. On the Streaming PC, run `Migrate-StreamPCRelay.ps1` as administrator once before opening the new app. It reads only the Gaming PC's address from the old task and keeps the task XML (and any earlier relay-config.json) under `%LOCALAPPDATA%\VTubeControl\retired`. If the task is already gone, use the existing `%APPDATA%\VTubeControl\relay-config.json`; do not guess an address.
+
+## Uninstalling
+
+Open **Settings > Apps > Installed apps**, find **VTube Input Bridge** and choose **Uninstall** (or double-click `%LOCALAPPDATA%\VTubeControl\Uninstall-VTubeInputBridge.cmd`).
+
+- It asks once: **Also delete settings and pairing?** Choose **No** (the default) to keep them for a later reinstall, **Yes** to delete them, or **Cancel** to remove nothing.
+- It closes the app, then removes its shortcuts, its sign-in entry, its firewall rules (Windows asks for approval for that step only), the installed versions and, on the Gaming PC, the Stream Deck plugin (Stream Deck is closed for a moment and reopened).
+- It does not touch OBS, VTube Studio or the old separate tracking app. The `retired` folder is kept. On a Streaming PC that was moved from the old relay task, the uninstaller does not bring that task back; it tells you how: run `Restore-StreamPCRelay.ps1` from `%LOCALAPPDATA%\VTubeControl\retired` in an administrator PowerShell with the `-Record` path it shows.
+- For scripts: `Uninstall-VTubeInputBridge.cmd -Quiet` (or `VTC_QUIET=1`) asks nothing and keeps settings; add `-DeleteSettings` to delete them.
 
 ## First run and pairing
 
@@ -39,7 +58,7 @@ Open **VTube Input Bridge** on both PCs. The window opens on **Home**, which sho
 
 ## Stream Deck
 
-The Stream Deck sits on the Gaming PC. It needs Stream Deck 7.1 or newer with its bundled Node 24 runtime. The Gaming PC installer hands `com.chayzx.vtubecontrol.streamDeckPlugin` to Stream Deck; existing buttons and profiles are untouched. Add **VTube Control > Bridge command** keys:
+The Stream Deck sits on the Gaming PC. It needs Stream Deck 7.1 or newer with its bundled Node 24 runtime. On the Gaming PC the installer hands `com.chayzx.vtubecontrol.streamDeckPlugin` to Stream Deck; existing buttons and profiles are untouched. Add **VTube Control > Bridge command** keys:
 
 - Choose the PC and the action. For OBS and Meld Studio scenes and VTube Studio hotkeys, the list fills itself when you open the key's settings; choose **Refresh** after opening the app.
 - Spotify: play, pause, next or previous. Spotify's Windows media session is used; unsupported actions fail visibly.
@@ -62,7 +81,7 @@ Fugi's embed needs the local Discord app, so reactives are rendered on the Gamin
 
 1. Look at **Tracking** on the Streaming PC first. **Waiting for VTube Studio** means open VTube Studio, enable its API, and approve **Game Input Relay** if it asks. **Waiting for the Gaming PC** means VTube Studio is connected but no recent input has arrived. **Receiver stopped** or **Restarting receiver** means the app is starting or recovering its relay.
 2. On the Gaming PC, **Waiting for the Streaming PC** means the sender is running but has had no recent acknowledgement. Check that it is sending to the Streaming PC's current address, and that the address the Streaming PC accepts tracking from matches the Gaming PC's current address.
-3. If the PCs' addresses changed, give them back their expected addresses (a reserved address in the router helps), or update the saved receiver source and the firewall rule by reinstalling. Do not create broader firewall rules to make the warning go away.
+3. If the PCs' addresses changed, give them back their expected addresses (a reserved address in the router helps), or update the saved receiver source. The firewall rules allow the whole local network, so they need no change; if they are missing (the Windows prompt was declined), run the installer again. Do not create broader firewall rules to make the warning go away.
 4. Update both PCs to the same version (0.3.0-preview.5 or later). An older Streaming PC relay does not send acknowledgements, so the Gaming PC keeps showing **Waiting for the Streaming PC** even when tracking works.
 5. If both PCs are on the same version, the addresses match, and the Streaming PC says it is receiving input while the Gaming PC keeps waiting, the reply path is blocked. Check that the Windows network is set to Private on both PCs, since the firewall rule only covers private networks, then note the exact messages on both PCs.
 
@@ -86,8 +105,8 @@ Full rollback:
 
 1. Exit **VTube Input Bridge** from its tray on the PC being rolled back; this also stops its tracking. Leave OBS and VTube Studio running.
 2. On the Streaming PC, restore the old relay task from an elevated PowerShell: `./Restore-StreamPCRelay.ps1 -Record '<path printed by the migration>'`. The app must be exited first. This registers and starts the exact task XML saved during migration.
-3. Run `./Rollback-Control.ps1 -Record '<path printed by installer>\rollback.json'`. Use an elevated shell if the installer added a firewall rule.
-4. It restores backed-up shortcuts, the optional startup entry and the app's settings, and removes only its version folder and its own firewall rule. Older versions and tracking files are kept. Use `-KeepSettings` to keep the app's current settings.
+3. Run `./Rollback-Control.ps1 -Record '<path printed by installer>\rollback.json'`. Use an elevated shell if the record names a firewall rule (installs before 1.0).
+4. It restores backed-up shortcuts, the optional startup entry and the app's settings, and removes only its version folder (and, for installs before 1.0, its own firewall rule). Older versions and tracking files are kept. Use `-KeepSettings` to keep the app's current settings.
 5. In Stream Deck, remove the plugin by hand. Back up a Stream Deck profile before editing it if you need to restore key assignments exactly.
 6. Remove the reactive Web Item or Item Scene by hand, or restore the saved VTube Studio item configuration. Any manual OBS or VTube Studio changes are outside the installer: note them beforehand and reverse those exact changes.
 
