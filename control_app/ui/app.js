@@ -768,7 +768,7 @@ function renderUpdate(u){
  setText(el('updateTitle'),u.busy?`${u.busy}…`:ready?`Version ${ready.version} is ready`:`Version ${u.current}`);
  setText(el('updateText'),u.error?sentence(u.error):ready?(paired?`This PC runs ${u.current}. Updating installs ${ready.version} on both PCs; each restarts by itself.`:`This PC runs ${u.current}. Updating installs ${ready.version} and restarts the app.`)
   :u.checkedAt?`Up to date (checked ${ago(u.checkedAt)}). Both PCs must run the same version; updating here also updates the other PC.`:'Both PCs must run the same version. Updating here also updates the other PC.');
- const install=el('updateInstall');setHidden(install,!ready);setText(install,paired?'Update both PCs':'Update');
+ const install=el('updateInstall');setHidden(install,!ready);setHidden(el('updateCheck'),!!ready);setText(install,paired?'Update both PCs':'Update');
  for(const id of ['updateCheck','updateFile','updateInstall'])el(id).disabled=!!u.busy||u.checking&&id==='updateCheck';
 }
 el('updateCheck').onclick=()=>busy(el('updateCheck'),async()=>{const u=await window.control.updateCheck();renderUpdate(u);if(!u.error)toast(u.available?`Version ${u.available.version} is available.`:'You have the latest version.');});
