@@ -172,19 +172,26 @@ function Start-PreviousApp([string[]]$Previous, [string]$ForRole) {
     foreach ($path in $Previous) { if ($path -and (Test-Path -LiteralPath $path)) { Start-Process -FilePath $path -ArgumentList $arguments -ErrorAction SilentlyContinue; return } }
 }
 
-# True when the rules Set-BridgeFirewall.ps1 makes for this version and role all exist (see that script for the list).
-# Reading rules needs no approval.
-function Test-BridgeFirewall([string]$VersionDir, [string]$ForRole) {
+# The port rules Set-BridgeFirewall.ps1 makes (Installer.Tests.ps1 checks the two lists match): name, protocol, port.
+function Get-BridgeRuleSpec([string]$ForRole) {
+    $spec = @(@('VTubeInputBridge-Link-TCP-5056', 'TCP', '5056'), @('VTubeInputBridge-Pairing-TCP-5059', 'TCP', '5059'), @('VTubeInputBridge-Pairing-UDP-5059', 'UDP', '5059'))
+    if ($ForRole -eq 'canada') { $spec += ,@('VTubeInputBridge-Tracking-UDP-5055', 'UDP', '5055') }
+    return $spec
+}
+
+# True when those rules all exist as Set-BridgeFirewall.ps1 makes them: enabled inbound allow, private networks, local
+# subnet, any program. Reading rules needs no approval, so installs and updates elevate only when this is false.
+function Test-BridgeFirewall([string]$ForRole) {
     if (-not (Get-Command Get-NetFirewallRule -ErrorAction SilentlyContinue)) { return $false }
-    $app = Join-Path $VersionDir 'VTubeControl.exe'
-    $expected = @(@('VTubeInputBridge-Link-TCP-5056', $app), @('VTubeInputBridge-Pairing-TCP-5059', $app), @('VTubeInputBridge-Pairing-UDP-5059', $app))
-    if ($ForRole -eq 'canada') { $expected += ,@('VTubeInputBridge-Tracking-UDP-5055', (Join-Path $VersionDir 'relay\vts_input_relay.exe')) }
-    else { $expected += ,@('VTubeInputBridge-Tracking-UDP', (Join-Path $VersionDir 'tracking\VTubeInputBridge.exe')) }
-    foreach ($pair in $expected) {
-        $rule = Get-NetFirewallRule -Name $pair[0] -ErrorAction SilentlyContinue
-        if (-not $rule -or [string]$rule.Enabled -ne 'True') { return $false }
-        if (@($rule | Get-NetFirewallApplicationFilter | Where-Object { $_.Program -eq $pair[1] }).Count -eq 0) { return $false }
-        if (@($rule | Get-NetFirewallAddressFilter | Where-Object { @($_.RemoteAddress) -contains 'LocalSubnet' }).Count -eq 0) { return $false }
+    foreach ($want in (Get-BridgeRuleSpec $ForRole)) {
+        $rule = Get-NetFirewallRule -Name $want[0] -ErrorAction SilentlyContinue
+        if (-not $rule -or [string]$rule.Enabled -ne 'True' -or [string]$rule.Direction -ne 'Inbound' -or [string]$rule.Action -ne 'Allow' -or [string]$rule.Profile -ne 'Private') { return $false }
+        $port = @($rule | Get-NetFirewallPortFilter)
+        if ($port.Count -ne 1 -or [string]$port[0].Protocol -ne $want[1] -or (@($port[0].LocalPort) -join ',') -ne $want[2]) { return $false }
+        $address = @($rule | Get-NetFirewallAddressFilter)
+        if ($address.Count -ne 1 -or (@($address[0].RemoteAddress) -join ',') -ne 'LocalSubnet') { return $false }
+        $program = @($rule | Get-NetFirewallApplicationFilter)
+        if ($program.Count -eq 1 -and [string]$program[0].Program -ne 'Any') { return $false }
     }
     return $true
 }
@@ -322,23 +329,24 @@ try {
     New-Item -ItemType Directory -Force -Path $appSettings | Out-Null
     [IO.File]::WriteAllText((Join-Path $appSettings 'role.txt'), $Role, (New-Object Text.UTF8Encoding $false))
 
-    # 2b. Let the other PC reach this one: the PC link (TCP 5056) and pairing/discovery (TCP and UDP 5059), for this
-    #     version's app, on private networks, from the local subnet (so a changed address on the other PC still
-    #     works; the app itself accepts only the paired PC's certificate). Without rules Windows asks the first time
-    #     the app listens, possibly while it is hidden in the tray. Older VTube Control rules are replaced. A refusal
-    #     is a warning, not a failure. An update never asks for approval: it reports that the rules need it.
+    # 2b. Let the other PC reach this one: the PC link (TCP 5056), pairing/discovery (TCP and UDP 5059) and, on the
+    #     Streaming PC, tracking (UDP 5055). Port rules on private networks from the local subnet, for any program, so
+    #     a changed address on the other PC or a new app version needs no change (the app itself accepts only the
+    #     paired PC's certificate). Without them Windows asks the first time the app listens, possibly while it is
+    #     hidden in the tray. Approval is asked only when the rules are missing or differ; older VTube Control rules
+    #     are replaced then. A refusal is a warning, not a failure. An update never asks: it reports missing rules.
     $firewallMissing = $false
     try {
-        if (-not (Test-BridgeFirewall $versionPath $Role)) {
+        if (-not (Test-BridgeFirewall $Role)) {
             if ($Update) {
                 $firewallMissing = $true
-                [void]$notes.Add('The firewall rules still allow the previous version only, so the two PCs may not reach each other. Run Install-VTubeInputBridge.cmd by double-clicking it and accept the Windows prompt.')
+                [void]$notes.Add('The firewall rules for VTube Input Bridge are missing, so the two PCs may not reach each other. Run Install-VTubeInputBridge.cmd by double-clicking it and accept the Windows prompt.')
                 Say ('Warning: ' + $notes[$notes.Count - 1]) 'Yellow'
             } else {
-                $ports = if ($Role -eq 'canada') { 'TCP 5056, TCP and UDP 5059, tracking on UDP 5055' } else { 'TCP 5056, TCP and UDP 5059, tracking replies' }
+                $ports = if ($Role -eq 'canada') { 'TCP 5056, TCP and UDP 5059, UDP 5055' } else { 'TCP 5056, TCP and UDP 5059' }
                 Say ('Windows will ask permission to let the other PC connect to VTube Input Bridge (' + $ports + ', private networks only).') 'Yellow'
                 $firewallLog = Join-Path $work 'firewall.log'
-                $arguments = '-NoProfile -ExecutionPolicy Bypass -File "' + (Join-Path (& $expand) 'Set-BridgeFirewall.ps1') + '" -VersionPath "' + $versionPath + '" -Role ' + $Role + ' -LogPath "' + $firewallLog + '"'
+                $arguments = '-NoProfile -ExecutionPolicy Bypass -File "' + (Join-Path (& $expand) 'Set-BridgeFirewall.ps1') + '" -Role ' + $Role + ' -VersionsRoot "' + (Join-Path $installRoot 'versions') + '" -LogPath "' + $firewallLog + '"'
                 $process = Start-Process -FilePath 'powershell.exe' -Verb RunAs -Wait -PassThru -WindowStyle Hidden -ArgumentList $arguments
                 if ($process.ExitCode -ne 0) {
                     $reason = if (Test-Path -LiteralPath $firewallLog) { ((Get-Content -LiteralPath $firewallLog) | Where-Object { $_ -like 'FAILED *' } | Select-Object -Last 1) } else { $null }

@@ -41,24 +41,25 @@ try {
  Assert $rejected 'Traversal path accepted'
  Write-Host 'Installer dry-run, role selection, tamper rejection, traversal rejection: PASS'
 
- # Firewall: program-scoped, private networks, local subnet, never a fixed peer address.
- $versionDir=Join-Path $root 'VTubeControl/versions/1.0.0-rc.1'
+ # Firewall: port rules, private networks, local subnet, no program (so updates need no approval), never a fixed peer.
+ . ([ScriptBlock]::Create((Get-FunctionText (Join-Path $scripts 'Control-OneClick.ps1') @('Get-BridgeRuleSpec'))))
  foreach ($role in @('pantry','canada')) {
-  $rules=@(& (Join-Path $scripts 'Set-BridgeFirewall.ps1') -VersionPath $versionDir -Role $role -PlanOnly)
-  Assert ($rules.Count -eq 4) "Expected 4 firewall rules for $role"
+  $rules=@(& (Join-Path $scripts 'Set-BridgeFirewall.ps1') -Role $role -PlanOnly)
+  $want=if ($role -eq 'canada') {@('TCP/5056','TCP/5059','UDP/5059','UDP/5055')} else {@('TCP/5056','TCP/5059','UDP/5059')}
+  Assert ((@($rules | ForEach-Object { "$($_.Protocol)/$($_.LocalPort)" }) -join ' ') -eq ($want -join ' ')) "Firewall ports for $role"
   foreach ($rule in $rules) {
    Assert ($rule.Direction -eq 'Inbound' -and $rule.Action -eq 'Allow' -and $rule.Profile -eq 'Private' -and $rule.RemoteAddress -eq 'LocalSubnet' -and $rule.Group -eq 'VTube Input Bridge') "Rule $($rule.Name) is not private/local-subnet"
-   Assert ($rule.Program.StartsWith($versionDir) -and $rule.Name -like 'VTubeInputBridge-*' -and $rule.DisplayName -like 'VTube Input Bridge (*)') "Rule $($rule.Name) is not scoped to this version"
+   Assert ($rule.Name -like 'VTubeInputBridge-*' -and $rule.DisplayName -like 'VTube Input Bridge (*)') "Rule $($rule.Name) name"
+   Assert (-not ($rule.PSObject.Properties.Name -contains 'Program')) "Rule $($rule.Name) must not name a program"
   }
-  $app=Join-Path $versionDir 'VTubeControl.exe'
-  foreach ($want in @('TCP/5056','TCP/5059','UDP/5059')) {
-   Assert (@($rules | Where-Object { "$($_.Protocol)/$($_.LocalPort)" -eq $want -and $_.Program -eq $app }).Count -eq 1) "Missing app rule $want for $role"
-  }
-  $tracking=@($rules | Where-Object { $_.Program -ne $app })
-  if ($role -eq 'canada') { Assert ($tracking[0].Protocol -eq 'UDP' -and $tracking[0].LocalPort -eq '5055' -and $tracking[0].Program -like '*vts_input_relay.exe') 'Missing relay UDP 5055 rule' }
-  else { Assert ($tracking[0].Protocol -eq 'UDP' -and $tracking[0].Program -like '*VTubeInputBridge.exe') 'Missing tracking sender rule' }
+  Assert ((@($rules | Where-Object { $_.LocalPort -eq '5056' }).DisplayName) -eq 'VTube Input Bridge (PC link)') 'PC link rule name'
+  Assert (@($rules | Where-Object { $_.LocalPort -eq '5059' -and $_.DisplayName -eq 'VTube Input Bridge (pairing)' }).Count -eq 2) 'Pairing rule names'
+  if ($role -eq 'canada') { Assert ((@($rules | Where-Object { $_.LocalPort -eq '5055' }).DisplayName) -eq 'VTube Input Bridge (tracking)') 'Tracking rule name' }
+  # The installer's no-approval check looks for exactly the rules this script makes.
+  $spec=@(Get-BridgeRuleSpec $role | ForEach-Object { $_ -join '/' }) -join ' '
+  Assert ($spec -eq (@($rules | ForEach-Object { $_.Name + '/' + $_.Protocol + '/' + $_.LocalPort }) -join ' ')) "Installer firewall check differs from Set-BridgeFirewall.ps1 for $role"
  }
- Write-Host 'Firewall rules (program, Private, LocalSubnet, 5056/5059/5055): PASS'
+ Write-Host 'Firewall rules (ports 5056/5059, 5055 on the Streaming PC; Private, LocalSubnet, no program): PASS'
 
  # One-click body: plain ASCII without a percent sign, no role baked in, and its role and update-result helpers.
  $oneClick=Join-Path $scripts 'Control-OneClick.ps1'

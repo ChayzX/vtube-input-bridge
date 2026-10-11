@@ -81,8 +81,8 @@ try {
   New-ItemProperty -Path $runKey -Name VTubeControl -Value $state.startupExpected -PropertyType String -Force | Out-Null
  }
  if ($EnableFirewall) {
-  # Program-scoped, private networks, local subnet; replaces earlier VTube Control rules. Removed by the uninstaller.
-  & (Join-Path $PackagePath 'Set-BridgeFirewall.ps1') -VersionPath $versionPath -Role $Role | Out-Host
+  # Port rules on private networks from the local subnet; replaces earlier VTube Control rules. Removed by the uninstaller.
+  & (Join-Path $PackagePath 'Set-BridgeFirewall.ps1') -Role $Role -VersionsRoot (Split-Path $versionPath -Parent) | Out-Host
   if ($LASTEXITCODE -ne 0) { throw 'Could not add the firewall rules' }
  }
  # The role lets the next update (and a plain launch) pick the same PC without asking. No byte-order mark.
