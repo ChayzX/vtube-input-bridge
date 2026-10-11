@@ -21,7 +21,7 @@ If a Streaming PC update stopped halfway (the old task is gone but the app says 
 1. Verify the ZIP checksum and extract the package for the PC. Exit the running VTube Input Bridge from its tray first.
 2. In PowerShell, run `./Install-Control.ps1`. It installs into `%LOCALAPPDATA%\VTubeControl\versions\<version>`, creates Desktop and Start menu **VTube Input Bridge** shortcuts, and records backups. It does not launch the app, enable startup, or add a firewall rule by default.
 3. Optional flags: `-EnableStartup` adds a per-user Run entry; `-EnableFirewall -PeerAddress <other-PC-IP>` creates a private-network inbound TCP 5056 rule. The firewall option needs an elevated PowerShell under the same Windows account that will run the app. Confirm both PCs' current addresses first.
-4. On the Streaming PC, run `Migrate-StreamPCRelay.ps1` as administrator once before opening the new app. It keeps the task XML and the Gaming PC's address under `%LOCALAPPDATA%\VTubeControl\retired`. If the task is already gone, use the existing `%APPDATA%\VTubeControl\relay-config.json`; do not guess an address.
+4. On the Streaming PC, run `Migrate-StreamPCRelay.ps1` as administrator once before opening the new app. It reads only the Gaming PC's address from the old task, keeps the task XML (and any earlier relay-config.json) under `%LOCALAPPDATA%\VTubeControl\retired`, and if it fails the installer shows the reason. If the task is already gone, use the existing `%APPDATA%\VTubeControl\relay-config.json`; do not guess an address.
 
 ## First run and pairing
 

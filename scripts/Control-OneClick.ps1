@@ -126,9 +126,15 @@ try {
                 Say 'One-time Streaming PC migration: Windows will ask permission to replace only the old SYSTEM task.' 'Yellow'
                 $migration = Join-Path $extract 'Migrate-StreamPCRelay.ps1'
                 $appSettings = Join-Path ([Environment]::GetFolderPath('ApplicationData')) 'VTubeControl'
-                $arguments = '-NoProfile -ExecutionPolicy Bypass -File "' + $migration + '" -UserAppDataPath "' + $appSettings + '" -UserLocalAppDataPath "' + $installRoot + '"'
+                $migrationLog = Join-Path $work 'relay-migration.log'
+                $arguments = '-NoProfile -ExecutionPolicy Bypass -File "' + $migration + '" -UserAppDataPath "' + $appSettings + '" -UserLocalAppDataPath "' + $installRoot + '" -LogPath "' + $migrationLog + '"'
                 $process = Start-Process -FilePath 'powershell.exe' -Verb RunAs -Wait -PassThru -ArgumentList $arguments
-                if ($process.ExitCode -ne 0) { throw 'Streaming PC relay migration did not complete. The old task must remain stopped/unchanged as reported; do not launch this app yet.' }
+                $reason = if (Test-Path -LiteralPath $migrationLog) { ((Get-Content -LiteralPath $migrationLog) | Where-Object { $_ -like 'FAILED *' } | Select-Object -Last 1) } else { $null }
+                if ($process.ExitCode -ne 0) {
+                    $why = if ($reason) { $reason.Substring(7) } else { 'The permission prompt was cancelled or the migration window closed early.' }
+                    throw ('Streaming PC relay migration did not complete: ' + $why + ' The old relay task was left running.')
+                }
+                Say 'Moved tracking from the old relay task into the app.' 'Green'
             } elseif (-not (Test-Path -LiteralPath $relayConfig)) {
                 # A new Streaming PC: nothing to migrate. The app learns the Gaming PC's address when the PCs are paired.
                 Say 'New Streaming PC: tracking starts once this PC is paired with the Gaming PC (PC link in the app).'
