@@ -52,3 +52,22 @@ test('refusals from the other PC say what to do, never "undefined"',async()=>{
   try{await assert.rejects(forwardCommand({host:'127.0.0.1',port:p2,token,pin},c),e=>e.publicMessage==='On the other PC: refused (weird). Update VTube Input Bridge on both PCs.');}finally{await close(shown);}
  }finally{await close(busy);}
 });
+test('the APIs and the peer client report each request for the Metrics page',async()=>{
+ const {observePeer}=await import('../src/client.mjs');
+ const seen=[];const s=createApi({token,dispatcher:new Dispatcher(async()=>({value:1})),onRequest:r=>seen.push(r)});const port=await listen(s);
+ try{
+  const headers={Authorization:`Bearer ${token}`,'Content-Type':'application/json'};
+  await (await fetch(`http://127.0.0.1:${port}/command`,{method:'POST',headers,body:JSON.stringify({id:'m1',target:'local',action:'obs.x',args:{},expiresAt:Date.now()+5000})})).json();
+  await (await fetch(`http://127.0.0.1:${port}/status`)).text();
+  await new Promise(r=>setTimeout(r,20));
+  assert.equal(seen.length,2);assert.equal(seen[0].path,'/command');assert.equal(seen[0].status,200);assert.equal(seen[0].result.ok,true);assert.ok(seen[0].ms>=0);
+  assert.equal(seen[1].status,401);
+ }finally{await close(s);}
+ const {cert,pin}=await peerCert();const peer=createApi({token,tls:cert,dispatcher:new Dispatcher(async()=>({}))});const peerPort=await listen(peer);
+ const calls=[];observePeer(r=>calls.push(r));
+ try{
+  await requestPeer({host:'127.0.0.1',port:peerPort,token,pin},'GET','/status');
+  await assert.rejects(requestPeer({host:'127.0.0.1',port:peerPort,token,pin:'0'.repeat(64)},'GET','/status'));
+  assert.deepEqual(calls.map(c=>[c.method,c.path,c.ok]),[['GET','/status',true],['GET','/status',false]]);
+ }finally{observePeer(null);await close(peer);}
+});

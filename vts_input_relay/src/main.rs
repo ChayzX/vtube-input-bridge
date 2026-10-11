@@ -69,6 +69,7 @@ struct StatusReporter {
     source: IpAddr,
     vts_connected: bool,
     packets_received: u64,
+    bytes_received: u64,
     last_packet_unix_ms: u64,
     last_write: Instant,
 }
@@ -76,7 +77,7 @@ struct StatusReporter {
 impl StatusReporter {
     fn new(path: Option<PathBuf>, source: IpAddr) -> Self {
         Self {
-            path, source, vts_connected: false, packets_received: 0,
+            path, source, vts_connected: false, packets_received: 0, bytes_received: 0,
             last_packet_unix_ms: 0,
             last_write: Instant::now() - Duration::from_secs(2),
         }
@@ -87,6 +88,7 @@ impl StatusReporter {
             "source": self.source.to_string(),
             "vts_connected": self.vts_connected,
             "packets_received": self.packets_received,
+            "bytes_received": self.bytes_received,
             "last_packet_unix_ms": self.last_packet_unix_ms,
         }).to_string()
     }
@@ -105,8 +107,9 @@ impl StatusReporter {
         self.write();
     }
 
-    fn record_packet(&mut self) {
+    fn record_packet(&mut self, size: usize) {
         self.packets_received = self.packets_received.saturating_add(1);
+        self.bytes_received = self.bytes_received.saturating_add(size as u64);
         self.last_packet_unix_ms = SystemTime::now()
             .duration_since(UNIX_EPOCH).unwrap_or_default().as_millis() as u64;
         if self.last_write.elapsed() >= Duration::from_secs(1) {
@@ -351,7 +354,7 @@ async fn relay(socket: &mut VtsSocket, udp: &UdpSocket, filter: &mut PacketFilte
         if !filter.accept(&packet, sender) { continue; }
         vts_request(socket, inject_request(&packet.state), Duration::from_secs(3)).await?;
         expressions.apply(socket, desired_expressions(&packet.state)).await?;
-        status.record_packet();
+        status.record_packet(size);
         let acknowledgement = json!({"type": "ack", "version": 1, "sequence": packet.sequence}).to_string();
         if let Err(error) = udp.send_to(acknowledgement.as_bytes(), sender).await {
             tracing::debug!(%error, peer = %sender, "could not return input acknowledgement");
@@ -537,11 +540,12 @@ mod tests {
     fn status_reports_receiver_connection_and_packet_time() {
         let mut status = StatusReporter::new(None, "10.0.0.112".parse().unwrap());
         status.set_connected(true);
-        status.record_packet();
+        status.record_packet(42);
         let data: Value = serde_json::from_str(&status.to_json()).unwrap();
         assert_eq!(data["vts_connected"], true);
         assert_eq!(data["source"], "10.0.0.112");
         assert_eq!(data["packets_received"], 1);
+        assert_eq!(data["bytes_received"], 42);
         assert!(data["last_packet_unix_ms"].as_u64().unwrap() > 0);
     }
 

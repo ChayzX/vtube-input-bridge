@@ -2,7 +2,7 @@ import {app,BrowserWindow,Tray,Menu,ipcMain,dialog,safeStorage,nativeImage,nativ
 import {contextMenuTemplate} from './contextmenu.mjs';import {trayHealth} from './health.mjs';import {trayIconPng,TRAY_SIZES} from './trayicon.mjs';
 import {readFile,writeFile,mkdir,rename,copyFile} from 'node:fs/promises';import {join,dirname} from 'node:path';import {fileURLToPath} from 'node:url';import {randomBytes,randomUUID,createHash,X509Certificate} from 'node:crypto';import selfsigned from 'selfsigned';
 import {SerialQueue} from './serial.mjs';import {Retry} from './retry.mjs';import {checkDeadline} from './deadline.mjs';
-import {defaults,upgradeConfig,validateConfig,validateSave,parsePairingFile} from './config.mjs';import {Dispatcher} from './commands.mjs';import {FrameStore} from './frames.mjs';import {createApi,createOverlay} from './server.mjs';import {requestPeer,forwardCommand} from './client.mjs';import {userError} from './errors.mjs';import {ReactiveRenderer,openFugiLogin} from './reactive.mjs';
+import {defaults,upgradeConfig,validateConfig,validateSave,parsePairingFile} from './config.mjs';import {Dispatcher} from './commands.mjs';import {FrameStore} from './frames.mjs';import {createApi,createOverlay} from './server.mjs';import {requestPeer,forwardCommand,observePeer} from './client.mjs';import {Metrics,outcomeKind} from './metrics.mjs';import {userError} from './errors.mjs';import {ReactiveRenderer,openFugiLogin} from './reactive.mjs';
 import {hostname as osHostname} from 'node:os';import {cleanHostname,pcLabel,peerHostname} from './names.mjs';
 import {PluginHost} from './plugins/host.mjs';import {TrackingSender,TrackingReceiver} from './plugins/tracking.mjs';import {createControlsPlugin} from './plugins/controls.mjs';import {createReactivesPlugin} from './plugins/reactives.mjs';
 
@@ -14,7 +14,34 @@ const here=dirname(fileURLToPath(import.meta.url));const dir=join(app.getPath('a
 let config=null,identity=null,linkError='Starting',window,tray,quitting=false,shutdownPromise=null,servers=[],last={};
 // This PC's Windows computer name, and the other PC's as it last reported it over the link.
 const hostname=cleanHostname(osHostname());let peerName='';
-const frames=new FrameStore();const hex=()=>randomBytes(32).toString('hex');
+const frames=new FrameStore();
+// Per-second metrics for the Metrics page (15 minutes, memory only).
+const metrics=new Metrics({seconds:900});
+// Requests this PC makes to the other PC. Frame uploads are reactives, everything else is the PC link. Each request
+// counts once: answered (sent or received) or an error, so the Metrics page can stack them.
+observePeer(({method,path,ms,ok,bytes})=>{
+ if(method==='PUT'&&path==='/frame'){if(ok){metrics.count('reactive.frames');metrics.observe('reactive.uploadMs',ms);metrics.observe('reactive.frameBytes',bytes);}else metrics.count('reactive.errors');return;}
+ metrics.count(ok?'peer.sent':'peer.errors');metrics.observe('peer.latency',ms);
+});
+// Requests to this PC: from the other PC on 5056 (frames received are reactives) and from the Stream Deck on 5057.
+function peerRequest({method,path,status,result,bytes}){
+ if(method==='PUT'&&path==='/frame'){if(status===200){metrics.count('reactive.received');metrics.observe('reactive.frameBytes',bytes);}else metrics.count('reactive.errors');return;}
+ metrics.count(status>=400||result?.ok===false?'peer.errors':'peer.received');
+}
+function localRequest({path,status,ms,result}){
+ if(path!=='/command'){metrics.tally('api.other');return;}
+ const kind=status===200?outcomeKind(result):'refused';metrics.count('api.'+kind);metrics.observe('api.ms',ms);
+ metrics.tally('api.code.'+(result?.ok?'ok':result?.code||'http_'+status));
+}
+// Once a second: close the metrics second, reading the tracking counters (they live in the helper or relay).
+function sampleMetrics(){
+ const t=host.status().tracking||{};const now=Date.now();
+ if(Number.isFinite(t.packets))metrics.cumulative('tracking.packets',t.packets);
+ if(Number.isFinite(t.bytes))metrics.cumulative('tracking.bytes',t.bytes);
+ if(t.role==='sender')metrics.gauge('tracking.ackAge',t.running&&t.lastAckUnixMs>0?Math.min(Math.max(now-t.lastAckUnixMs,0),30000):NaN);
+ else if(t.role==='receiver')metrics.gauge('tracking.packetAge',t.lastPacketUnixMs>0?Math.min(Math.max(now-t.lastPacketUnixMs,0),30000):NaN);
+ metrics.tick();
+}const hex=()=>randomBytes(32).toString('hex');
 const renderer=new ReactiveRenderer(async png=>{if(!config?.enabled||!config.peer)throw Error('Disabled');const r=await requestPeer(config.peer,'PUT','/frame',png);if(!r.ok)throw Error('Upload rejected');});
 const transactions=new SerialQueue();
 const settingsFile=join(dir,'settings.enc');const identityFile=join(dir,'identity.enc');const roleFile=join(dir,'role.txt');
@@ -56,9 +83,9 @@ async function startServers(){
  const connection=join(dir,'plugin-connection.json');await writeFile(connection,JSON.stringify({port:5057,token:identity.localToken}),{mode:0o600});
  if(!config.enabled)return;
  const overlayFrames={get:()=>config.reactive.visible?frames.get():null};
- const list=[{server:createApi({token:identity.localToken,dispatcher,status}),port:5057,host:'127.0.0.1'},
-  {server:createApi({token:identity.networkToken,tls:identity.cert,source:config.peer.host,dispatcher,status,frames}),port:5056,host:config.ownIp},
-  {server:createOverlay(overlayFrames,identity.overlayToken),port:5058,host:'127.0.0.1'}];
+ const list=[{server:createApi({token:identity.localToken,dispatcher,status,onRequest:localRequest}),port:5057,host:'127.0.0.1'},
+  {server:createApi({token:identity.networkToken,tls:identity.cert,source:config.peer.host,dispatcher,status,frames,onRequest:peerRequest}),port:5056,host:config.ownIp},
+  {server:createOverlay(overlayFrames,identity.overlayToken,served=>metrics.count(served?'overlay.frames':'overlay.empty')),port:5058,host:'127.0.0.1'}];
  try{for(const {server,port,host:address} of list){await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(port,address,resolve);});servers.push(server);}}
  catch{await closeServers();throw new Error(`Could not open ${config.ownIp} or ports 5056–5058 on this PC. Retrying; if this lasts, check “This PC’s address” under PC link and that no other program uses those ports. Tracking is unaffected.`);}
 }
@@ -148,7 +175,7 @@ if(!app.requestSingleInstanceLock()){app.quit();}else{
   host.add(role==='pantry'
    ?new TrackingSender({exe:join(here,'..','tracking','VTubeInputBridge.exe'),settingsFile:join(dir,'tracking.json')})
    :new TrackingReceiver({exe:join(here,'..','relay','vts_input_relay.exe'),configFile:join(dir,'relay-config.json'),tokenFile:join(process.env.LOCALAPPDATA||join(app.getPath('home'),'AppData','Local'),'VTubeInputRelay','vts-token.txt'),statusFile:join(process.env.LOCALAPPDATA||join(app.getPath('home'),'AppData','Local'),'VTubeInputRelay','status.json')}));
-  await host.start('tracking');
+  await host.start('tracking');setInterval(sampleMetrics,1000);
   // 2. The secure link and the features that use it.
   try{await startLink(role);linkError=null;}catch(e){linkError=e?.message||String(e);}
   host.add(createControlsPlugin({getConfig:()=>config,linkError:()=>linkError,mediaExe:join(here,'..','media','SpotifyControl.exe'),
@@ -169,6 +196,8 @@ if(!app.requestSingleInstanceLock()){app.quit();}else{
   ipc('control:reactive-start',async()=>{requireLink();return dispatcher.execute({id:randomUUID(),expiresAt:Date.now()+10000,target:'local',action:'reactive.start',args:{}});});
   ipc('control:reactive-stop',async()=>{requireLink();rendering.cancel();return dispatcher.execute({id:randomUUID(),expiresAt:Date.now()+10000,target:'local',action:'reactive.stop',args:{}});});
   ipc('control:command',c=>{requireLink();return dispatcher.execute({id:randomUUID(),expiresAt:Date.now()+10000,target:c.target,action:c.action,args:c.args||{}});});
+  // The Metrics page asks once a second while it is open, for the points after the last one it has.
+  ipc('control:metrics',({since=0}={})=>metrics.snapshot(Number(since)||0));
   ipc('tracking:call',async(name,args)=>{const result=await host.ui('tracking',name,args);updateTray();return result;});
 
   tray=new Tray(trayIcon('warn'));trayLevel='warn';tray.on('double-click',createWindow);

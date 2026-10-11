@@ -1,5 +1,15 @@
 import https from 'node:https'; import tls from 'node:tls'; import {createHash,timingSafeEqual} from 'node:crypto';import {describing} from './errors.mjs';
-export function requestPeer(pair,method,path,body) {
+// One listener hears how every request to the other PC went, for the Metrics page and the log:
+// {method, path, ms, ok, error, bytes (the body sent)}.
+let observer=null;
+export function observePeer(fn){observer=fn;}
+export function requestPeer(pair,method,path,body){
+ if(!observer)return send(pair,method,path,body);
+ const started=performance.now();const bytes=Buffer.isBuffer(body)?body.length:0;
+ const report=(ok,error)=>{try{observer({method,path,ms:performance.now()-started,ok,error,bytes});}catch{}};
+ return send(pair,method,path,body).then(value=>{report(value?.ok!==false);return value;},error=>{report(false,error);throw error;});
+}
+function send(pair,method,path,body) {
  if(!pair||!/^[a-f0-9]{64}$/.test(pair.pin)||!/^[a-f0-9]{64}$/.test(pair.token)||!/^\d{1,3}(\.\d{1,3}){3}$/.test(pair.host)||!Number.isInteger(pair.port)||pair.port<1||pair.port>65535) return Promise.reject(new Error('Peer is not configured'));
  const agent=new https.Agent({keepAlive:false});
  // Release the TLS socket to HTTP only after checking the exact certificate. No bearer token is sent to an unpinned peer.

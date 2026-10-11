@@ -82,7 +82,7 @@ export class TrackingSender {
  }
  status(){
   const h=this.helper||{};
-  return {role:'sender',state:this.state,connectionState:h.running?(h.receiverConnected?'Connected':'Waiting for the Streaming PC'):this.state,running:!!h.running,receiverConnected:!!h.receiverConnected,lastAckSequence:h.lastAckSequence??-1,lastAckUnixMs:h.lastAckUnixMs??0,packets:h.packets??0,destination:h.destination??'',
+  return {role:'sender',state:this.state,connectionState:h.running?(h.receiverConnected?'Connected':'Waiting for the Streaming PC'):this.state,running:!!h.running,receiverConnected:!!h.receiverConnected,lastAckSequence:h.lastAckSequence??-1,lastAckUnixMs:h.lastAckUnixMs??0,packets:h.packets??0,bytes:Number.isFinite(h.bytesSent)?h.bytesSent:null,destination:h.destination??'',
    gameMode:!!h.gameMode,sensitivity:h.sensitivity??1,rawEvents:h.rawEvents??0,rawError:h.rawError??'',
    legacy:!!h.legacy,error:this.lastError||h.error||'',startSendingOnLaunch:!!this.settings.startSendingOnLaunch};
  }
@@ -140,7 +140,8 @@ export class TrackingReceiver {
  }
  async poll(){this.process=!!this.child&&this.child.exitCode===null&&this.child.signalCode===null;try{this.data=JSON.parse(await this.readFile(this.statusFile,'utf8'));}catch{this.data=null;}}
  status(){
-  const d=this.data;const base={role:'receiver',packets:Number(d?.packets_received)||0,source:d?.source??this.source};
+  // bytes is null from a relay built before it reported bytes.
+  const d=this.data;const base={role:'receiver',packets:Number(d?.packets_received)||0,bytes:Number.isFinite(d?.bytes_received)?d.bytes_received:null,lastPacketUnixMs:Number(d?.last_packet_unix_ms)||0,source:d?.source??this.source};
   if(!this.process)return {...base,state:this.state==='Restarting receiver'?'Restarting receiver':'Receiver stopped',detail:this.lastError||'The VTube Input Relay is not running.'};
   if(!d)return {...base,state:'Starting receiver',detail:this.lastError||'Waiting for status from the receiver.'};
   if(!d.vts_connected)return {...base,state:'Waiting for VTube Studio',detail:'Open VTube Studio and enable its API.'};

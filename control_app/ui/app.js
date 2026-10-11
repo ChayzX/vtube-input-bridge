@@ -46,7 +46,7 @@ async function busy(button,fn){
 }
 
 // ---------- Navigation ----------
-const pages=['home','tracking','link','apps','deck','reactives','advanced'];
+const pages=['home','tracking','link','apps','deck','reactives','metrics','advanced'];
 let current='home';
 function go(page,focusId){
  if(!pages.includes(page))page='home';
@@ -54,8 +54,14 @@ function go(page,focusId){
  for(const a of all('.nav a[data-page]')){if(a.dataset.page===page)a.setAttribute('aria-current','page');else a.removeAttribute('aria-current');}
  if(page!==current){const main=el('main');if(main){main.scrollTop=0;}}
  current=page;globalThis.history?.replaceState?.(null,'','#'+page);
+ pageShown(page);
  if(focusId){const target=el(focusId);target?.scrollIntoView?.({block:'center'});target?.focus?.();}
 }
+// The Metrics (and Logs) pages fetch only while they are open.
+function pageShown(page){
+ if(page==='metrics'){if(!metricsTimer)void pollMetrics();}else if(metricsTimer){clearTimeout(metricsTimer);metricsTimer=null;}
+}
+document.addEventListener?.('visibilitychange',()=>{if(document.visibilityState!=='hidden')pageShown(current);});
 for(const a of all('.nav a[data-page]'))a.addEventListener('click',e=>{e.preventDefault();go(a.dataset.page);el('main')?.focus?.({preventScroll:true});});
 for(const b of all('[data-go]'))b.addEventListener('click',()=>go(b.dataset.go,b.dataset.focus));
 
@@ -419,6 +425,211 @@ function showResult(action,result){
 }
 for(const [id,action] of [['scenes','obs.scenes'],['meldScenes','meld.scenes'],['hotkeys','vts.hotkeys'],['pause','spotify.pause']])
  el(id).onclick=()=>busy(el(id),async()=>{let result;try{result=await window.control.command({target:el('target').value,action,args:{}});}catch(e){result={ok:false,message:cleanError(e)};}showResult(action,result);});
+
+// ---------- Metrics ----------
+// One point per second from the main process, fetched only while this page is open and the window is visible. Each
+// chart has one unit on one axis, a legend with the latest values, and a crosshair readout (mouse, or arrow keys).
+const SERIES_CLASS=['s1','s2','s3'];
+function metricCharts(){
+ const pantry=role==='pantry';const tracked=pantry?'Sent':'Received';
+ const pct=(key,label='')=>[{key:key+'.p50',label:'Median'+label},{key:key+'.p95',label:'95th percentile'+label}];
+ return [
+  {group:'Tracking',id:'tPackets',title:'Tracking packets',unit:'packets/s',series:[{key:'tracking.packets',label:tracked}]},
+  {group:'Tracking',id:'tBytes',title:'Tracking data',unit:'KB/s',scale:1/1024,series:[{key:'tracking.bytes',label:tracked}],none:`Not reported by the tracking ${pantry?'helper':'relay'} on this PC yet. It needs the updated tracking files from this version.`},
+  pantry?{group:'Tracking',id:'tAge',title:'Acknowledgement age',unit:'ms',series:[{key:'tracking.ackAge',label:'Since the Streaming PC last confirmed a packet'}],help:'Low and steady while sending. Climbing means acknowledgements are not getting back. Gaps: not sending.'}
+   :{group:'Tracking',id:'tAge',title:'Time since the last packet',unit:'ms',series:[{key:'tracking.packetAge',label:'Since the last packet from the Gaming PC'}],help:'Low and steady while the Gaming PC is sending. Capped at 30 s.'},
+  {group:'PC link',id:'pRate',title:'Requests',kind:'bars',unit:'requests',series:[{key:'peer.sent',label:'Sent'},{key:'peer.received',label:'Received'},{key:'peer.errors',label:'Errors'}],help:'Commands and status between the PCs, stacked. Reactive frames are counted under Reactives.'},
+  {group:'PC link',id:'pLatency',title:'Response time of the other PC',unit:'ms',series:pct('peer.latency')},
+  {group:'Stream Deck',id:'aRate',title:'Commands by result',kind:'bars',unit:'commands',series:[{key:'api.ok',label:'Worked'},{key:'api.failed',label:'Failed'},{key:'api.refused',label:'Refused'}],help:'Key presses and key settings lists from the Stream Deck on this PC. Refused: nothing ran (expired, turned off, busy).'},
+  {group:'Stream Deck',id:'aTime',title:'Command time',unit:'ms',series:pct('api.ms')},
+  {group:'Reactives',id:'rRate',title:pantry?'Frames sent to the Streaming PC':'Frames received from the Gaming PC',unit:'frames/s',series:[{key:pantry?'reactive.frames':'reactive.received',label:pantry?'Uploaded':'Received'},{key:'reactive.errors',label:'Failed'}]},
+  {group:'Reactives',id:'rSize',title:'Frame size',unit:'KB',scale:1/1024,series:pct('reactive.frameBytes')},
+  pantry?{group:'Reactives',id:'rUpload',title:'Upload time',unit:'ms',series:pct('reactive.uploadMs')}
+   :{group:'Reactives',id:'oRate',title:'Overlay frames served to VTube Studio',unit:'frames/s',series:[{key:'overlay.frames',label:'With an image'},{key:'overlay.empty',label:'Empty'}]}
+ ];
+}
+const metricsData={times:[],series:{},totals:{},recent:{},uptime:0};
+let metricsSince=0,metricsTimer=null,metricsBuilt='',charts=[],metricsRange=300;
+const finite=v=>typeof v==='number'&&Number.isFinite(v);
+// New points are appended; a series that first appears later is padded with gaps so every series lines up with times.
+function mergeMetrics(d){
+ if(!d||!Array.isArray(d.times))return;
+ const before=metricsData.times.length;const added=d.times.length;
+ metricsData.times.push(...d.times);
+ for(const [key,values] of Object.entries(d.series||{})){const arr=metricsData.series[key]??=new Array(before).fill(NaN);arr.push(...values.map(v=>v===null?NaN:v));}
+ for(const arr of Object.values(metricsData.series))while(arr.length<before+added)arr.push(NaN);
+ const extra=metricsData.times.length-(d.capacity||900);
+ if(extra>0){metricsData.times.splice(0,extra);for(const arr of Object.values(metricsData.series))arr.splice(0,extra);}
+ if(added)metricsSince=d.times[added-1];
+ Object.assign(metricsData,{totals:d.totals||{},recent:d.recent||{},uptime:d.uptime||0,now:d.now});
+}
+function niceMax(v){if(!(v>0))return 1;const p=10**Math.floor(Math.log10(v));const f=v/p;return (f<=1?1:f<=2?2:f<=2.5?2.5:f<=5?5:10)*p;}
+function num(v,unit){
+ if(!finite(v))return '—';
+ const digits=Math.abs(v)>=100||unit==='packets/s'&&Math.abs(v)>=10?0:Math.abs(v)>=10?1:2;
+ return Number(v.toFixed(digits)).toLocaleString();
+}
+function duration(ms){const s=Math.floor(ms/1000);const h=Math.floor(s/3600),m=Math.floor(s%3600/60);return h?`${h} h ${m} min`:m?`${m} min ${s%60} s`:`${s} s`;}
+function clock(t){const d=new Date(t);return d.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'});}
+function make(tag,cls,text){const node=document.createElement(tag);if(cls)node.className=cls;if(text!==undefined)node.textContent=text;return node;}
+function buildMetrics(){
+ const key=role+'';if(metricsBuilt===key)return;metricsBuilt=key;
+ const host=el('metricCharts');if(!host?.append)return;
+ host.replaceChildren();charts=[];let grid=null,group='';
+ for(const def of metricCharts()){
+  if(def.group!==group){group=def.group;host.append(make('h2','section',group));grid=make('div','charts');host.append(grid);}
+  const card=make('article','card chart');const head=make('h3','',def.title);const unit=make('span','unit',def.unit);unit.hidden=true;head.append(unit);card.append(head);
+  if(def.help)card.append(make('p','chart-help',def.help));
+  const legend=make('ul','legend');const values=[];
+  def.series.forEach((s,i)=>{const li=make('li');li.append(make('span','key '+SERIES_CLASS[i]),make('span','',s.label));const b=make('b','','—');li.append(b);legend.append(li);values.push(b);});
+  const plot=make('div','plot');const canvas=make('canvas');canvas.tabIndex=0;canvas.setAttribute('role','img');
+  const empty=make('div','empty','No data yet');const tip=make('div','tip');tip.hidden=true;plot.append(canvas,empty,tip);
+  if(def.series.length>1)card.append(legend);else{legend.classList.add('single');card.append(legend);}
+  card.append(plot);grid.append(card);
+  const chart={def,canvas,empty,tip,values,unit,hover:-1};charts.push(chart);
+  canvas.addEventListener('pointermove',e=>{const r=canvas.getBoundingClientRect();chart.hover=indexAt(chart,e.clientX-r.left);drawChart(chart);});
+  canvas.addEventListener('pointerleave',()=>{chart.hover=-1;drawChart(chart);});
+  canvas.addEventListener('blur',()=>{chart.hover=-1;drawChart(chart);});
+  canvas.addEventListener('keydown',e=>{
+   const n=metricsData.times.length;if(!n)return;const first=Math.max(0,n-metricsRange);
+   if(e.key==='ArrowLeft'||e.key==='ArrowRight'){e.preventDefault();const at=chart.hover<0?n-1:chart.hover;chart.hover=Math.min(n-1,Math.max(first,at+(e.key==='ArrowLeft'?-1:1)*(e.shiftKey?10:1)));drawChart(chart);}
+   else if(e.key==='Escape'){chart.hover=-1;drawChart(chart);}
+  });
+ }
+}
+const PAD={l:44,r:8,t:24,b:20};
+// Bar charts sum each series into 30 buckets across the window (10 s at 5 minutes, 30 s at 15 minutes): single events
+// such as a key press stay visible, and the stacked total is every request or command in that bucket.
+const bucketSize=()=>Math.max(1,Math.round(metricsRange/30));
+const unitOf=def=>def.kind==='bars'?`${def.unit} per ${bucketSize()} s`:def.unit;
+function indexAt(chart,x){
+ const w=chart.canvas.clientWidth;const n=metricsData.times.length;if(!n)return -1;
+ const first=n-metricsRange;const plotW=w-PAD.l-PAD.r;
+ const i=Math.round(first+(x-PAD.l)/plotW*(metricsRange-1));return i<Math.max(0,first)||i>n-1?-1:i;
+}
+function chartValues(chart){
+ const n=metricsData.times.length;const first=Math.max(0,n-metricsRange);const scale=chart.def.scale||1;
+ return chart.def.series.map(s=>{const arr=metricsData.series[s.key];return arr?arr.slice(first).map(v=>finite(v)?v*scale:NaN):null;});
+}
+function drawChart(chart){
+ const {canvas,def}=chart;const w=canvas.clientWidth,h=canvas.clientHeight;if(!w||!h||!canvas.getContext)return;
+ const dpr=globalThis.devicePixelRatio||1;
+ if(canvas.width!==Math.round(w*dpr)||canvas.height!==Math.round(h*dpr)){canvas.width=Math.round(w*dpr);canvas.height=Math.round(h*dpr);}
+ const ctx=canvas.getContext('2d');ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,w,h);
+ const css=getComputedStyle(document.documentElement);const color=name=>css.getPropertyValue(name).trim();
+ const n=metricsData.times.length;const first=Math.max(0,n-metricsRange);const offset=first-(n-metricsRange);// empty slots at the left
+ const bars=def.kind==='bars';const unit=unitOf(def);setText(chart.unit,unit);
+ const series=chartValues(chart);
+ const all=series.flatMap(a=>a||[]).filter(finite);
+ const hasData=all.length>0;
+ setHidden(chart.empty,hasData);
+ setText(chart.empty,hasData?'':series.every(a=>!a)&&def.none?def.none:'No data yet');
+ // Buckets for bar charts, newest bucket ending at "now": [{from,to,values:[per series]}].
+ const size=bucketSize(),count=Math.ceil(metricsRange/size);let buckets=[];
+ if(bars)for(let b=0;b<count;b++){
+  const to=n-1-(count-1-b)*size,from=to-size+1;const values=series.map(arr=>{if(!arr)return 0;let sum=0;for(let i=Math.max(from,first);i<=to;i++){const v=arr[i-first];if(finite(v))sum+=v;}return sum;});
+  buckets.push({from,to,values,total:values.reduce((x,y)=>x+y,0)});
+ }
+ const top=bars?Math.max(0,...buckets.map(b=>b.total)):Math.max(0,...all);
+ const max=niceMax(top);
+ const plotW=w-PAD.l-PAD.r,plotH=h-PAD.t-PAD.b;
+ const X=i=>PAD.l+(i+offset)/(metricsRange-1)*plotW,Y=v=>PAD.t+plotH-v/max*plotH;
+ // Axes: three recessive gridlines with values, the unit above them, and the time under the plot.
+ ctx.font=`12px ${color('--font')||'sans-serif'}`;ctx.textBaseline='middle';
+ for(const f of hasData?[0,0.5,1]:[0]){
+  const y=Math.round(Y(max*f))+0.5;ctx.strokeStyle=f===0?color('--axis'):color('--grid');ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(PAD.l,y);ctx.lineTo(w-PAD.r,y);ctx.stroke();
+  ctx.fillStyle=color('--text-2');ctx.textAlign='right';ctx.fillText(num(max*f,def.unit),PAD.l-6,y);
+ }
+ ctx.textAlign='left';ctx.textBaseline='alphabetic';ctx.fillStyle=color('--text-2');ctx.fillText(unit,0,11);
+ ctx.textBaseline='bottom';const minutes=metricsRange/60;
+ ctx.textAlign='left';ctx.fillText(`${minutes} min ago`,PAD.l,h);ctx.textAlign='center';ctx.fillText(`${minutes/2} min ago`,PAD.l+plotW/2,h);ctx.textAlign='right';ctx.fillText('now',w-PAD.r,h);
+ const stroke=[color('--series-1'),color('--series-2'),color('--series-3')];const surface=color('--card');
+ const slot=plotW/count;const hoverBucket=bars&&chart.hover>=first?Math.floor((chart.hover-(n-1-count*size+1))/size):-1;
+ if(bars){
+  // Stacked columns with a 2 px surface gap between bars and between segments; rounded where the stack ends.
+  buckets.forEach((b,k)=>{
+   const x=PAD.l+k*slot+1,bw=Math.max(1,slot-2);let base=0;
+   if(k===hoverBucket){ctx.fillStyle=color('--nav-hover');ctx.fillRect(PAD.l+k*slot,PAD.t,slot,plotH);}
+   const last=b.values.reduce((at,v,i)=>v>0?i:at,-1);
+   b.values.forEach((v,s)=>{
+    if(!(v>0))return;const y0=Y(base),y1=Y(base+v);base+=v;
+    const gap=s===last?0:2;const height=Math.max(1,y0-y1-gap);ctx.fillStyle=stroke[s];
+    ctx.beginPath();if(s===last&&ctx.roundRect)ctx.roundRect(x,y1,bw,height,[Math.min(3,bw/2),Math.min(3,bw/2),0,0]);else ctx.rect(x,y1+gap,bw,height);ctx.fill();
+    if(s===2){ctx.save();ctx.clip();ctx.strokeStyle=surface;ctx.lineWidth=1;for(let d=-height;d<bw;d+=4){ctx.beginPath();ctx.moveTo(x+d,y0);ctx.lineTo(x+d+height,y1);ctx.stroke();}ctx.restore();}
+   });
+  });
+ }else{
+  // Lines: 2 px, broken where there is no value; a value with no neighbours is a dot. The third series is dashed and
+  // the second series' lone dots are rings, so identity never relies on colour alone.
+  series.forEach((values,s)=>{
+   if(!values)return;ctx.strokeStyle=stroke[s];ctx.lineWidth=2;ctx.lineJoin='round';ctx.lineCap='round';ctx.setLineDash(s===2?[5,4]:[]);
+   ctx.beginPath();let pen=false;const dots=[];
+   values.forEach((v,i)=>{if(!finite(v)){pen=false;return;}const x=X(i),y=Y(v);if(pen)ctx.lineTo(x,y);else{ctx.moveTo(x,y);if(!finite(values[i+1]))dots.push([x,y]);pen=true;}});
+   ctx.stroke();ctx.setLineDash([]);
+   for(const [x,y] of dots){ctx.beginPath();ctx.arc(x,y,4,0,7);if(s===1){ctx.lineWidth=2;ctx.stroke();}else{ctx.fillStyle=stroke[s];ctx.fill();}}
+  });
+ }
+ // Legend: the latest value of each line, or each series' total over the window for bars.
+ series.forEach((values,s)=>{
+  let text='—';
+  if(values&&bars)text=fmt(buckets.reduce((sum,b)=>sum+b.values[s],0))+` in ${minutes} min`;
+  else if(values){const last=[...values].reverse().find(finite);if(finite(last))text=num(last,def.unit);}
+  setText(chart.values[s],text);
+ });
+ canvas.setAttribute('aria-label',`${def.title}, ${unit}, last ${minutes} minutes. `+(bars?'Totals: ':'Latest: ')+def.series.map((s,i)=>`${s.label} ${chart.values[i].textContent}`).join(', ')+'. Use the left and right arrow keys to read values.');
+ // Crosshair (lines) or highlighted bucket (bars), and one readout listing every series.
+ const tip=chart.tip;
+ if(chart.hover<first||chart.hover>=n||!hasData){tip.hidden=true;return;}
+ const i=chart.hover-first;let x=X(i),rows;
+ if(bars){
+  const b=buckets[hoverBucket];if(!b){tip.hidden=true;return;}x=PAD.l+(hoverBucket+0.5)*slot;
+  const from=metricsData.times[Math.max(b.from,first)],to=metricsData.times[b.to];
+  rows=[make('div','t',`${clock(from)} – ${clock(to)}`)];
+  def.series.forEach((s,k)=>{const r=make('div','r');r.append(make('span','key '+SERIES_CLASS[k]),make('b','',fmt(b.values[k])),make('span','',s.label));rows.push(r);});
+ }else{
+  ctx.strokeStyle=color('--axis');ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(Math.round(x)+0.5,PAD.t);ctx.lineTo(Math.round(x)+0.5,PAD.t+plotH);ctx.stroke();
+  series.forEach((values,s)=>{const v=values?.[i];if(!finite(v))return;ctx.fillStyle=surface;ctx.beginPath();ctx.arc(x,Y(v),6,0,7);ctx.fill();ctx.fillStyle=stroke[s];ctx.beginPath();ctx.arc(x,Y(v),4,0,7);ctx.fill();});
+  rows=[make('div','t',clock(metricsData.times[chart.hover]))];
+  def.series.forEach((s,k)=>{const r=make('div','r');r.append(make('span','key '+SERIES_CLASS[k]),make('b','',`${num(series[k]?.[i],def.unit)} ${def.unit}`),make('span','',s.label));rows.push(r);});
+ }
+ tip.replaceChildren(...rows);tip.hidden=false;
+ const tw=tip.offsetWidth||160;tip.style.left=Math.max(0,Math.min(x+12+tw>w?x-12-tw:x+12,w-tw))+'px';
+}
+const TOTALS=[['tracking.packets','Tracking packets'],['tracking.bytes','Tracking data (bytes)'],['peer.sent','PC link requests sent'],['peer.received','PC link requests received'],['peer.errors','PC link errors'],
+ ['api.ok','Stream Deck commands that worked'],['api.failed','Stream Deck commands that failed'],['api.refused','Stream Deck commands refused'],
+ ['reactive.frames','Reactive frames sent'],['reactive.received','Reactive frames received'],['reactive.errors','Reactive frame failures'],['overlay.frames','Overlay frames served'],['overlay.empty','Overlay requests with no image']];
+function renderMetrics(){
+ buildMetrics();
+ const d=metricsData,t=d.totals;
+ setText(el('metricsUptime'),d.now?`Updated ${clock(d.now)}`:'');
+ const rate=key=>{const arr=d.series[key];if(!arr)return NaN;const last=arr.slice(-5).filter(finite);return last.length?last.reduce((a,b)=>a+b,0)/last.length:NaN;};
+ const tiles=[
+  ['Uptime',d.uptime?duration(d.uptime).replace(/ \d+ s$/,''):'—','Since the app started'],
+  ['Tracking packets',fmt(t['tracking.packets']),finite(rate('tracking.packets'))?`${num(rate('tracking.packets'),'packets/s')} packets/s now`:'No packets yet'],
+  ['PC link requests',fmt((t['peer.sent']||0)+(t['peer.received']||0)),`${fmt(t['peer.errors'])} error${t['peer.errors']===1?'':'s'}`],
+  ['Stream Deck commands',fmt((t['api.ok']||0)+(t['api.failed']||0)+(t['api.refused']||0)),`${fmt(t['api.failed'])} failed · ${fmt(t['api.refused'])} refused`],
+  ['Reactive frames',fmt((t['reactive.frames']||0)+(t['reactive.received']||0)),`${fmt(t['reactive.errors'])} failed`]
+ ];
+ const box=el('metricTiles');
+ if(box?.append&&box.children.length!==tiles.length){box.replaceChildren(...tiles.map(()=>{const c=make('div','card tile');c.append(make('div','k'),make('div','v'),make('div','d'));return c;}));}
+ tiles.forEach(([k,v,detail],i)=>{const c=box?.children?.[i];if(!c)return;setText(c.children[0],k);setText(c.children[1],v);setText(c.children[2],detail);});
+ for(const chart of charts)drawChart(chart);
+ const rows=TOTALS.filter(([key])=>t[key]!==undefined).map(([key,label])=>[label,t[key]]);
+ for(const [key,value] of Object.entries(t))if(key.startsWith('api.code.'))rows.push([`Stream Deck result “${key.slice(9)}”`,value]);
+ const body=el('metricTotalRows');
+ if(body?.replaceChildren){
+  if(!rows.length){const tr=make('tr');const td=make('td','','No data yet');td.colSpan=2;tr.append(td);body.replaceChildren(tr);}
+  else body.replaceChildren(...rows.map(([label,value])=>{const tr=make('tr');tr.append(make('th','',label),make('td','mono',fmt(value)));tr.firstChild.scope='row';return tr;}));
+ }
+}
+async function pollMetrics(){
+ metricsTimer=null;if(current!=='metrics')return;
+ // The layout depends on this PC's role, known after the first refresh.
+ if(role&&document.visibilityState!=='hidden'&&window.control.metrics){try{mergeMetrics(await window.control.metrics({since:metricsSince}));renderMetrics();}catch{}}
+ if(current==='metrics'&&!metricsTimer)metricsTimer=setTimeout(pollMetrics,1000);
+}
+el('metricsRange').onchange=()=>{metricsRange=Number(el('metricsRange').value)||300;for(const c of charts)c.hover=-1;renderMetrics();};
+window.addEventListener('resize',()=>{if(current==='metrics')for(const c of charts)drawChart(c);});
 
 // ---------- Start ----------
 go((globalThis.location?.hash||'').slice(1)||'home');
