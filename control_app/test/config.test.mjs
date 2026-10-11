@@ -20,3 +20,7 @@ test('an imported file that is not JSON is refused with a sentence, not a parser
  assert.throws(()=>parsePairingFile(Buffer.from('not json')),e=>/not a pairing file/.test(e.message)&&!/SyntaxError|Unexpected token/.test(e.message));
  assert.throws(()=>parsePairingFile(Buffer.alloc(9000)),/too large/);
 });
+test('a pairing file saved with a byte-order mark still imports',async()=>{
+ const {parsePairingFile}=await import('../src/config.mjs');const good={host:'10.0.0.119',port:5056,pin:'a'.repeat(64),token:'b'.repeat(64)};
+ assert.equal(parsePairingFile(Buffer.concat([Buffer.from([0xef,0xbb,0xbf]),Buffer.from(JSON.stringify(good,null,2))])).host,'10.0.0.119');
+});

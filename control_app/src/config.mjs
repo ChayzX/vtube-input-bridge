@@ -14,7 +14,8 @@ export function validatePair(p){if(!p||!privateIp(p.host)||p.port!==5056||!/^[a-
 // Reads an imported pairing file (bytes as read from disk).
 export function parsePairingFile(bytes){
  if(bytes.length>8192)throw new Error('Pairing file too large');
- let value;try{value=JSON.parse(bytes.toString('utf8'));}catch{throw new Error('That is not a pairing file. Choose the file exported with “Export this PC’s pairing file” on the other PC.');}
+ // A file opened and saved again in Notepad or written by Windows PowerShell may start with a byte-order mark.
+ let value;try{value=JSON.parse(bytes.toString('utf8').replace(/^\uFEFF/,''));}catch{throw new Error('That is not a pairing file. Choose the file exported with “Export this PC’s pairing file” on the other PC.');}
  return validatePair(value);
 }
 export function validateConfig(c){
