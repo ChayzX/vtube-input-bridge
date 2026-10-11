@@ -32,7 +32,7 @@ export class ReactiveRenderer {
   win.webContents.on('did-fail-load',()=>fail('Fugi source unavailable: check the URL and the network'));
   try{await win.loadURL(url.href);}
   catch{const problem=this.problem;this.stop();if(problem===login){this.state=login;throw userError(login+'.','login_required');}
-   throw userError('Could not load the Fugi browser source. Check the URL in settings and that Pantry is online.','unavailable');}
+   this.state=problem||'Fugi source unavailable: check the URL and the network';throw userError('Could not load the Fugi browser source. Check the URL in settings and that Pantry is online.','unavailable');}
   this.state='Rendering — Discord response needs verification';
   this.timer=setInterval(async()=>{
    if(this.busy||win.isDestroyed())return;this.busy=true;let timeout,stage='source';
