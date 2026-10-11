@@ -1,4 +1,48 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src ws://127.0.0.1:*; script-src 'self'; style-src 'self'"><link rel="stylesheet" href="style.css"><title>VTube Control</title></head><body>
-<label>Target<select id="target"><option value="peer">Canada / other PC</option><option value="local">Pantry / this PC</option></select></label>
-<label>Action<select id="action"><option value="obs.scene">OBS — change scene</option><option value="meld.scene">Meld Studio — change scene</option><option value="spotify.play">Spotify — play</option><option value="spotify.pause">Spotify — pause</option><option value="spotify.next">Spotify — next track</option><option value="spotify.previous">Spotify — previous track</option><option value="vts.trigger">VTube Studio — hotkey / Item Scene</option><option value="reactive.show">Reactives — show on Canada</option><option value="reactive.hide">Reactives — hide on Canada</option><option value="reactive.start">Reactives — start renderer on Pantry</option><option value="reactive.stop">Reactives — stop renderer on Pantry</option></select></label>
-<label>Scene name / hotkey ID<input id="value" list="choices"><datalist id="choices"></datalist></label><button id="discover">Fetch scenes / hotkeys</button><p id="message" aria-live="polite">Enable and pair VTube Control on both PCs first. Renderer start/stop target Pantry; show/hide target Canada.</p><script src="app.js"></script></body></html>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src ws://127.0.0.1:*; script-src 'self'; style-src 'self'">
+<link rel="stylesheet" href="style.css">
+<title>VTube Input Bridge key</title>
+</head>
+<body>
+<p class="status" id="status" role="status"><span class="dot" aria-hidden="true"></span><span id="statusText">Connecting to VTube Input Bridge…</span></p>
+
+<div class="field">
+  <label for="action">Action</label>
+  <select id="action">
+    <option value="obs.scene">OBS: switch scene</option>
+    <option value="meld.scene">Meld Studio: switch scene</option>
+    <option value="vts.trigger">VTube Studio: hotkey or Item Scene</option>
+    <option value="spotify.play">Spotify: play</option>
+    <option value="spotify.pause">Spotify: pause</option>
+    <option value="spotify.next">Spotify: next track</option>
+    <option value="spotify.previous">Spotify: previous track</option>
+    <option value="reactive.show">Reactives: show on the Streaming PC</option>
+    <option value="reactive.hide">Reactives: hide on the Streaming PC</option>
+    <option value="reactive.start">Reactives: start the renderer on the Gaming PC</option>
+    <option value="reactive.stop">Reactives: stop the renderer on the Gaming PC</option>
+  </select>
+</div>
+
+<div class="field">
+  <label for="target">PC</label>
+  <select id="target"><option value="peer">The other PC</option><option value="local">This PC</option></select>
+  <p class="hint" id="targetHint" hidden>Set for you: this action always runs on the PC that does the job.</p>
+</div>
+
+<div class="field" id="pickField" hidden>
+  <label for="choice" id="choiceLabel">Scene</label>
+  <div class="pick"><select id="choice"></select><button type="button" id="discover">Refresh</button></div>
+</div>
+
+<div class="field" id="valueField" hidden>
+  <label for="value">Or type the scene name</label>
+  <input id="value" autocomplete="off" spellcheck="false">
+</div>
+
+<p class="message" id="message" aria-live="polite"></p>
+<script src="app.js"></script>
+</body>
+</html>

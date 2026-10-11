@@ -1,7 +1,7 @@
 import {checkDeadline} from './deadline.mjs';
 import WebSocket from 'ws'; import {randomUUID} from 'node:crypto';import {loopbackWs} from './obs.mjs';import {userError} from './errors.mjs';
 const identity={pluginName:'VTube Control',pluginDeveloper:'ChayzX'};
-const APPROVE='Click Allow in the VTube Studio window on the stream PC to let VTube Control use it, then press again.';
+const APPROVE='Click Allow in the VTube Studio window on the Streaming PC to let VTube Control use it, then press again.';
 // One VTube Studio API connection; every request still pending fails when it closes.
 function session(url){
  const ws=new WebSocket(loopbackWs(url),{maxPayload:1024*1024}); const pending=new Map();

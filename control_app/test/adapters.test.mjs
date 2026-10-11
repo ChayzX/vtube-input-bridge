@@ -61,7 +61,7 @@ test('VTS approval: a revoked token is replaced, and the press does not wait for
  const config={url:`ws://127.0.0.1:${s.address().port}`,token:'revoked'};const saved=[];const opts=()=>({...config,saveToken:async t=>{saved.push(t);config.token=t;}});
  try{
   const started=Date.now();
-  await assert.rejects(vtsAction(opts(),'vts.trigger',{hotkey:'h'}),e=>e.code==='not_approved'&&/no longer accepts.*Click Allow.*stream PC/.test(e.publicMessage));
+  await assert.rejects(vtsAction(opts(),'vts.trigger',{hotkey:'h'}),e=>e.code==='not_approved'&&/no longer accepts.*Click Allow.*Streaming PC/.test(e.publicMessage));
   assert.ok(Date.now()-started<1000);assert.deepEqual(saved,['']);
   await new Promise(r=>setTimeout(r,50));assert.equal(tokenRequests,1);
   // A second press while the prompt is open does not open another prompt.
