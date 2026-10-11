@@ -82,10 +82,14 @@ jobs:
           gh release upload "$tag" --repo "$GITHUB_REPOSITORY" --clobber \
             build/Install-VTubeInputBridge-GamingPC.cmd \
             build/Install-VTubeInputBridge-StreamPC.cmd
+      # Installers ship through the draft release above. This copy is a convenience: the bundle is several hundred MB,
+      # so a full artifact storage quota must not fail the build, and it expires after a day.
       - uses: actions/upload-artifact@v4
         if: ${{ !inputs.artifacts_only }}
+        continue-on-error: true
         with:
           name: VTubeControl-Preview
+          retention-days: 1
           path: |
             build/VTubeControl-*.zip
             build/*.streamDeckPlugin
