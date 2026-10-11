@@ -1,4 +1,4 @@
-import {isIP} from 'node:net';import {loopbackWs} from './obs.mjs';import {validateFugiUrl} from './frames.mjs';
+import {isIP} from 'node:net';import {loopbackWs} from './obs.mjs';import {validateFugiUrl,validateSourceUrl} from './frames.mjs';
 export function privateIp(s){if(isIP(s)!==4)return false;const [a,b]=s.split('.').map(Number);return a===10||(a===172&&b>=16&&b<=31)||(a===192&&b===168);}
 // Every feature starts on. Controls themselves switch on when the PCs are paired (they need the other PC), and Fugi
 // rendering only belongs on the gaming PC, where Discord runs.
@@ -11,6 +11,13 @@ export function upgradeConfig(c,role){
  return c;
 }
 export function validatePair(p){if(!p||!privateIp(p.host)||p.port!==5056||!/^[a-f0-9]{64}$/.test(p.pin)||!/^[a-f0-9]{64}$/.test(p.token))throw new Error('Invalid pairing file: private IPv4, port 5056, token and certificate pin required');return {host:p.host,port:p.port,pin:p.pin,token:p.token};}
+// Reads an imported pairing file (bytes as read from disk).
+export function parsePairingFile(bytes){
+ if(bytes.length>8192)throw new Error('Pairing file too large');
+ // A file opened and saved again in Notepad or written by Windows PowerShell may start with a byte-order mark.
+ let value;try{value=JSON.parse(bytes.toString('utf8').replace(/^\uFEFF/,''));}catch{throw new Error('That is not a pairing file. Choose the file made with “Export pairing file” on the other PC.');}
+ return validatePair(value);
+}
 export function validateConfig(c){
  if(c?.version!==1||!['pantry','canada'].includes(c.role)||typeof c.enabled!=='boolean'||!privateIp(c.ownIp))throw new Error('Enter this PC’s local IPv4 address (for example 192.168.1.20) under PC link');
  for(const section of ['obs','vts','spotify','reactive','meld'])if(typeof c[section]?.enabled!=='boolean')throw new Error('Invalid feature setting');
@@ -20,3 +27,6 @@ export function validateConfig(c){
  if(c.reactive.url)validateFugiUrl(c.reactive.url);if(c.reactive.enabled&&c.role!=='pantry')throw new Error('Reactives are rendered on the Gaming PC, where Discord runs');
  return c;
 }
+// A save from the settings window is held to what the renderer will accept, so "Saved" never hides a renderer that
+// cannot start (stored settings are still loaded with the looser check above).
+export function validateSave(c){validateConfig(c);if(c.role==='pantry'&&c.reactive.url)validateSourceUrl(c.reactive.url);return c;}

@@ -61,11 +61,12 @@ test('VTS approval: a revoked token is replaced, and the press does not wait for
  const config={url:`ws://127.0.0.1:${s.address().port}`,token:'revoked'};const saved=[];const opts=()=>({...config,saveToken:async t=>{saved.push(t);config.token=t;}});
  try{
   const started=Date.now();
-  await assert.rejects(vtsAction(opts(),'vts.trigger',{hotkey:'h'}),e=>e.code==='not_approved'&&/no longer accepts.*Click Allow.*Streaming PC/.test(e.publicMessage));
+  await assert.rejects(vtsAction(opts(),'vts.trigger',{hotkey:'h'}),e=>e.code==='not_approved'&&/no longer accepts.*Click Allow in the VTube Studio window/.test(e.publicMessage));
   assert.ok(Date.now()-started<1000);assert.deepEqual(saved,['']);
   await new Promise(r=>setTimeout(r,50));assert.equal(tokenRequests,1);
   // A second press while the prompt is open does not open another prompt.
-  await assert.rejects(vtsAction(opts(),'vts.trigger',{hotkey:'h'}),/Click Allow/);await new Promise(r=>setTimeout(r,50));assert.equal(tokenRequests,1);
+  // The prompt is on whichever PC runs VTube Studio (Pantry too), so the text names no PC.
+  await assert.rejects(vtsAction(opts(),'vts.trigger',{hotkey:'h'}),e=>/Click Allow/.test(e.publicMessage)&&!/stream PC|Canada|Pantry/.test(e.publicMessage));await new Promise(r=>setTimeout(r,50));assert.equal(tokenRequests,1);
   allow();const until=Date.now()+2000;while(config.token!=='fresh'&&Date.now()<until)await new Promise(r=>setTimeout(r,10));
   assert.equal(config.token,'fresh');await vtsAction(opts(),'vts.trigger',{hotkey:'h'});assert.equal(triggered,1);
  }finally{await new Promise(r=>s.close(r));}
