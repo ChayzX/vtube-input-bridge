@@ -1,4 +1,4 @@
-import {isIP} from 'node:net';import {loopbackWs} from './obs.mjs';import {validateFugiUrl} from './frames.mjs';
+import {isIP} from 'node:net';import {loopbackWs} from './obs.mjs';import {validateFugiUrl,validateSourceUrl} from './frames.mjs';
 export function privateIp(s){if(isIP(s)!==4)return false;const [a,b]=s.split('.').map(Number);return a===10||(a===172&&b>=16&&b<=31)||(a===192&&b===168);}
 // Every feature starts on. Controls themselves switch on when the PCs are paired (they need the other PC), and Fugi
 // rendering only belongs on the gaming PC, where Discord runs.
@@ -27,3 +27,6 @@ export function validateConfig(c){
  if(c.reactive.url)validateFugiUrl(c.reactive.url);if(c.reactive.enabled&&c.role!=='pantry')throw new Error('Fugi rendering belongs on Pantry with Discord');
  return c;
 }
+// A save from the settings window is held to what the renderer will accept, so "Saved" never hides a renderer that
+// cannot start (stored settings are still loaded with the looser check above).
+export function validateSave(c){validateConfig(c);if(c.role==='pantry'&&c.reactive.url)validateSourceUrl(c.reactive.url);return c;}
