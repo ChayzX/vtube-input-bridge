@@ -1,13 +1,20 @@
-// Property inspector for a "Bridge command" key. Settings keep their original shape ({target, action, value, label})
-// so existing keys keep working. Scene and hotkey lists are fetched as soon as the inspector opens.
-let ws,context,label='',role=null,token=0;const el=id=>document.getElementById(id);
+// Property inspector for every key type. Each job's key (OBS scene, Spotify, …) shows only its own fields; the
+// "Advanced command" key (the original "Bridge command") offers every action. All keep the original settings shape
+// ({target, action, value, label}) so existing keys keep working. Scene and hotkey lists are fetched as soon as the
+// inspector opens.
+let ws,context,uuid='com.chayzx.vtubecontrol.command',kind=null,label='',role=null,token=0;const el=id=>document.getElementById(id);
 // Reactive keys always go to the PC that runs them (as the plugin enforces): the renderer on the gaming PC, show/hide
 // on the stream PC. The Stream Deck sits on the gaming PC.
 const fixed={'reactive.show':'peer','reactive.hide':'peer','reactive.start':'local','reactive.stop':'local'};
+const P='com.chayzx.vtubecontrol.';
+const kinds={[P+'obs']:{actions:['obs.scene']},[P+'meld']:{actions:['meld.scene']},[P+'vts']:{actions:['vts.trigger']},
+ [P+'spotify']:{actions:['spotify.play','spotify.pause','spotify.next','spotify.previous'],label:'Control',names:['Play','Pause','Next track','Previous track']},
+ [P+'reactives']:{actions:['reactive.show','reactive.hide'],label:'Reactives',names:['Show','Hide']},
+ [P+'renderer']:{actions:['reactive.start','reactive.stop'],label:'Renderer',names:['Start','Stop']}};
 const lists={'obs.scene':{request:'scenes',noun:'scene',app:'OBS'},'meld.scene':{request:'meldScenes',noun:'scene',app:'Meld Studio'},'vts.trigger':{request:'hotkeys',noun:'hotkey',app:'VTube Studio'}};
 const settings=()=>({target:el('target').value,action:el('action').value,value:el('value').value,label});
 const save=()=>{if(ws?.readyState===WebSocket.OPEN)ws.send(JSON.stringify({event:'setSettings',context,payload:settings()}));};
-const send=payload=>{if(ws?.readyState===WebSocket.OPEN)ws.send(JSON.stringify({event:'sendToPlugin',action:'com.chayzx.vtubecontrol.command',context,payload}));};
+const send=payload=>{if(ws?.readyState===WebSocket.OPEN)ws.send(JSON.stringify({event:'sendToPlugin',action:uuid,context,payload}));};
 // Names for both PCs once the app says which one this is.
 const pcName=target=>role==='canada'?(target==='local'?'Streaming PC':'Gaming PC'):role==='pantry'?(target==='local'?'Gaming PC':'Streaming PC'):(target==='local'?'this PC':'the other PC');
 function status(level,text){el('status').className='status '+level;el('statusText').textContent=text;}
@@ -56,15 +63,29 @@ function onWhoami(r){
  if(r?.ok){role=r.role;labelTargets();status(r.paired?'ok':'warn',r.paired?`Connected to VTube Input Bridge on the ${pcName('local')}.`:`Connected on the ${pcName('local')}, but it is not paired with the other PC yet.`);}
  else status('err',r?.message||'VTube Input Bridge is not answering on this PC.');
 }
-function apply(s){for(const id of ['target','action','value'])el(id).value=s[id]||(id==='target'?'peer':id==='action'?'obs.scene':'');label=s.label||'';layout();}
+function apply(s){for(const id of ['target','action','value'])el(id).value=s[id]||(id==='target'?'peer':id==='action'?(kind?.actions[0]||'obs.scene'):'');if(kind&&!kind.actions.includes(el('action').value))el('action').value=kind.actions[0];label=s.label||'';layout();}
+// A job's key offers only its own actions, and hides the choice when there is just one.
+function narrow(){
+ if(!kind)return;for(const o of [...el('action').options])if(!kind.actions.includes(o.value))o.remove();
+ kind.names?.forEach((name,i)=>{el('action').options[i].textContent=name;});
+ el('actionField').hidden=kind.actions.length<2;if(kind.label)el('actionLabel').textContent=kind.label;
+}
+// What happened when this key was last pressed, from the plugin (it keeps the app's full reason).
+function onLast(r){
+ el('last').hidden=!r;if(!r)return;const at=new Date(r.at).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+ el('last').textContent=`Last press (${at}): ${r.ok?'it worked.':r.message}`;el('last').className='message'+(r.ok?'':' err');
+}
 
-window.connectElgatoStreamDeckSocket=(port,uuid,registerEvent,_info,actionInfo)=>{
- const info=JSON.parse(actionInfo);context=info.context;apply(info.payload.settings||{});fillChoices([]);
+window.connectElgatoStreamDeckSocket=(port,pi,registerEvent,_info,actionInfo)=>{
+ const info=JSON.parse(actionInfo),saved=info.payload.settings||{};context=info.context;uuid=info.action||uuid;kind=kinds[uuid]||null;narrow();apply(saved);fillChoices([]);
  ws=new WebSocket(`ws://127.0.0.1:${port}`);
- ws.onopen=()=>{ws.send(JSON.stringify({event:registerEvent,uuid}));send({request:'whoami'});refreshList();};
+ ws.onopen=()=>{ws.send(JSON.stringify({event:registerEvent,uuid:pi}));
+  // A job's new key is saved with its defaults straight away, so the key and its settings agree.
+  if(kind&&(saved.action!==el('action').value||saved.target!==el('target').value))save();
+  send({request:'whoami'});send({request:'lastPress'});refreshList();};
  ws.onclose=()=>status('err','Lost the connection to Stream Deck. Close and reopen this key\'s settings.');
  ws.onmessage=e=>{const data=JSON.parse(e.data);
-  if(data.event==='sendToPropertyInspector'){const p=data.payload||{};if(p.request==='whoami')onWhoami(p.result);else onList(p);}
+  if(data.event==='sendToPropertyInspector'){const p=data.payload||{};if(p.request==='whoami')onWhoami(p.result);else if(p.request==='lastPress')onLast(p.result);else onList(p);}
   if(data.event==='didReceiveSettings'){const before=settings();apply(data.payload.settings||{});if(before.action!==el('action').value||before.target!==el('target').value)refreshList();else fillChoices([...el('choice').options].filter(o=>o.value&&!o.textContent.endsWith('(saved)')).map(o=>({value:o.value,label:o.textContent})));}
  };
 };

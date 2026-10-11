@@ -20,3 +20,4 @@ input:focus-visible,select:focus-visible,button:focus-visible{outline:2px solid 
 .status.ok .dot{background:var(--ok)}.status.warn .dot{background:var(--warn)}.status.err .dot{background:var(--err)}
 .message{margin:0;color:var(--muted);line-height:18px}
 .message.err{color:var(--err)}
+#last{margin-top:10px}
