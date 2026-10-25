@@ -3,9 +3,11 @@ app.on('window-all-closed',()=>{});
 app.whenReady().then(async()=>{
  const store=new FrameStore();const renderer=new ReactiveRenderer(async png=>store.put(png));
  try {
-  const s=session.fromPartition('persist:fugi-renderer');await s.protocol.handle('https',request=>request.url.includes('offline=1')?Response.error():request.url.includes('/individual/')?Response.redirect('https://reactive.fugi.tech/login',302):new Response(`<html style="background:transparent"><body style="margin:0"><div id="embed" data-config='{"embed":"group"}'><div style="width:50px;height:50px;background:red"></div></div></body></html>`,{headers:{'content-type':'text/html'}}));
+  const s=session.fromPartition('persist:fugi-renderer');await s.protocol.handle('https',request=>request.url.includes('offline=1')?Response.error():request.url.includes('/individual/')?Response.redirect('https://reactive.fugi.tech/login',302):new Response(`<html style="background:transparent"><body style="margin:0"><div id="embed" data-config='{"embed":"${request.url.includes('/custom/')?'custom':'group'}"}'><div style="width:50px;height:50px;background:red"></div></div></body></html>`,{headers:{'content-type':'text/html'}}));
   await renderer.start('https://reactive.fugi.tech/group');for(let i=0;i<50&&!store.get();i++)await new Promise(r=>setTimeout(r,100));assert.ok(store.get(),'actual renderer must deliver PNG');
   assert.equal(renderer.state,'Sending images to the Streaming PC');renderer.stop();
+  // Fugi's custom group links report a "custom" embed.
+  await renderer.start('https://reactive.fugi.tech/custom/4azagam0hj5f');store.clear();for(let i=0;i<50&&!store.get();i++)await new Promise(r=>setTimeout(r,100));assert.ok(store.get(),'custom group embed must deliver PNG');renderer.stop();
   await new Promise(r=>setTimeout(r,2100));assert.equal(store.get(),null,'remote store clears after stopped renderer');
   // Stopping while a capture or upload is in flight leaves the state at Stopped.
   const slow=new ReactiveRenderer(async png=>{await new Promise(r=>setTimeout(r,80));store.put(png);});
@@ -13,7 +15,7 @@ app.whenReady().then(async()=>{
   await assert.rejects(renderer.start('https://reactive.fugi.tech/settings'),/account pages/);
   // A Fugi login redirect stays reported as such instead of a generic failure.
   await assert.rejects(renderer.start('https://reactive.fugi.tech/individual/123456789012345678'),e=>e.code==='login_required');
-  await new Promise(r=>setTimeout(r,300));assert.match(renderer.state,/Fugi login required/);
+  await new Promise(r=>setTimeout(r,300));assert.match(renderer.state,/Fugi sign-in needed/);
   // A Fugi page that cannot load stays reported as such, not as a plain "Stopped".
   await assert.rejects(renderer.start('https://reactive.fugi.tech/group?offline=1'),e=>e.code==='unavailable');assert.match(renderer.state,/Fugi source unavailable/);
   console.log('Renderer → PNG store → stale clearing: PASS');

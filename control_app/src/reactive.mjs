@@ -37,13 +37,13 @@ export class ReactiveRenderer {
   this.timer=setInterval(async()=>{
    if(this.busy||win.isDestroyed())return;this.busy=true;let timeout,stage='source';
    try{
-    const isEmbed=await Promise.race([win.webContents.executeJavaScript(`(()=>{const e=document.getElementById('embed');try{const c=JSON.parse(e?.dataset.config||'{}');return ['group','individual'].includes(c.embed);}catch{return false;}})()`),new Promise((_,reject)=>timeout=setTimeout(()=>reject(Error('Renderer unresponsive')),750))]);
+    const isEmbed=await Promise.race([win.webContents.executeJavaScript(`(()=>{const e=document.getElementById('embed');try{const c=JSON.parse(e?.dataset.config||'{}');return ['custom','group','individual'].includes(c.embed);}catch{return false;}})()`),new Promise((_,reject)=>timeout=setTimeout(()=>reject(Error('Renderer unresponsive')),750))]);
     clearTimeout(timeout);if(!isEmbed||win.webContents.getURL()!==url.href)throw Error('Not a Fugi embed');
     const image=await Promise.race([win.webContents.capturePage(),new Promise((_,reject)=>timeout=setTimeout(()=>reject(Error('Capture timeout')),750))]);
     clearTimeout(timeout);if(this.window!==win)return;const png=image.toPNG();if(png.length>2*1024*1024)throw Error('Frame too large');
     stage='upload';await this.send(png);if(this.window!==win)return;this.lastSent=Date.now();this.problem=null;this.state='Sending images to the Streaming PC';
    // A capture still in flight when the renderer is stopped or restarted must not report on the old window.
-   }catch{if(this.window!==win)return;this.state=this.problem||(stage==='upload'?'Streaming PC unavailable: images are not getting through':'Fugi page is not showing a group or individual embed');}finally{clearTimeout(timeout);this.busy=false;}
+   }catch{if(this.window!==win)return;this.state=this.problem||(stage==='upload'?'Streaming PC unavailable: images are not getting through':'Fugi page is not showing a custom group, group or individual embed');}finally{clearTimeout(timeout);this.busy=false;}
   },100);
  }
  stop(){clearInterval(this.timer);this.timer=null;this.problem=null;this.window?.destroy();this.window=null;this.state='Stopped';}

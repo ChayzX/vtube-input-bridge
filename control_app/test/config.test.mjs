@@ -31,5 +31,5 @@ test('a pairing file saved with a byte-order mark still imports',async()=>{
 test('saving a Fugi page the renderer cannot use is refused instead of silently not rendering',async()=>{
  const {validateSave}=await import('../src/config.mjs');const c=defaults('pantry');
  assert.throws(()=>validateSave({...c,reactive:{...c.reactive,url:'https://reactive.fugi.tech/settings'}}),/group or individual/);
- validateSave({...c,reactive:{...c.reactive,url:'https://reactive.fugi.tech/group'}});validateSave({...c,reactive:{...c.reactive,url:'https://reactive.fugi.tech/individual/123456789012345678'}});validateSave(c);
+ validateSave({...c,reactive:{...c.reactive,url:'https://reactive.fugi.tech/custom/4azagam0hj5f'}});validateSave({...c,reactive:{...c.reactive,url:'https://reactive.fugi.tech/group'}});validateSave({...c,reactive:{...c.reactive,url:'https://reactive.fugi.tech/individual/123456789012345678'}});validateSave(c);
 });
