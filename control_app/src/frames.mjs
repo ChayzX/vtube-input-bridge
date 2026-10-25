@@ -12,5 +12,5 @@ export function validateFugiUrl(value) {
  if(u.protocol!=='https:'||u.hostname!=='reactive.fugi.tech'||u.port||u.username||u.password) throw new Error('Use an HTTPS reactive.fugi.tech browser-source URL');
  return u;
 }
-export function validateSourceUrl(value){const u=validateFugiUrl(value);if(!/^\/group\/?$/.test(u.pathname)&&!/^\/individual\/\d{17,20}\/?$/.test(u.pathname))throw Error('Use Fugi’s group or individual browser-source URL; account pages cannot be relayed');return u;}
+export function validateSourceUrl(value){const u=validateFugiUrl(value);if(!/^\/custom\/[a-z0-9]{4,64}\/?$/i.test(u.pathname)&&!/^\/group\/?$/.test(u.pathname)&&!/^\/individual\/\d{17,20}\/?$/.test(u.pathname))throw Error('Use Fugi’s custom group, group or individual browser-source URL; account pages cannot be relayed');return u;}
 export function fugiPermission(permission,origin,page){if(permission!=='loopback-network'||origin!=='https://reactive.fugi.tech')return false;try{validateSourceUrl(page);return true;}catch{return false;}}

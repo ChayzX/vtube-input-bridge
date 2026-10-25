@@ -63,9 +63,10 @@ test('Fugi URL validation rejects other origins, credentials, scripts and HTTP',
 });
 test('only verified Fugi embed routes can be captured',async()=>{
  const {validateSourceUrl}=await import('../src/frames.mjs');
+ assert.equal(validateSourceUrl('https://reactive.fugi.tech/custom/4azagam0hj5f').pathname,'/custom/4azagam0hj5f');
  assert.equal(validateSourceUrl('https://reactive.fugi.tech/group?size=100').pathname,'/group');
  assert.equal(validateSourceUrl('https://reactive.fugi.tech/individual/123456789012345678').pathname,'/individual/123456789012345678');
- for(const s of ['https://reactive.fugi.tech/','https://reactive.fugi.tech/login','https://reactive.fugi.tech/settings'])assert.throws(()=>validateSourceUrl(s));
+ for(const s of ['https://reactive.fugi.tech/','https://reactive.fugi.tech/login','https://reactive.fugi.tech/settings','https://reactive.fugi.tech/custom/','https://reactive.fugi.tech/custom/4azagam0hj5f/edit','https://reactive.fugi.tech/custom/../settings'])assert.throws(()=>validateSourceUrl(s));
 });
 test('only Fugi embed pages may access local Discord; mic/camera and LAN remain denied',async()=>{
  const {fugiPermission}=await import('../src/frames.mjs');
