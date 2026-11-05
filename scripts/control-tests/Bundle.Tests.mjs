@@ -1,0 +1,35 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {mkdtemp, mkdir, writeFile, readFile, stat, rm} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {createHash} from 'node:crypto';
+import {stageControlPackage} from '../stage-control-package.mjs';
+
+test('staging consumes unpacked app while preserving bundle bytes, hashes and installer files', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'vtube-bundle-'));
+  t.after(() => rm(root, {recursive: true, force: true}));
+  const app = join(root, 'build/VTubeControl-win32-x64');
+  await mkdir(join(app, 'resources/app'), {recursive: true});
+  await mkdir(join(root, 'scripts'));
+  await mkdir(join(root, 'docs'));
+  const payloads = {'VTubeControl.exe': Buffer.from([0, 255, 13, 10]), 'resources/app/main.mjs': Buffer.from('application')};
+  for (const [name, bytes] of Object.entries(payloads)) await writeFile(join(app, name), bytes);
+  const scripts = ['Install-Control.ps1','Rollback-Control.ps1','Control-RollbackCore.ps1','Set-BridgeFirewall.ps1','Uninstall-VTubeInputBridge.ps1','Migrate-StreamPCRelay.ps1','Restore-StreamPCRelay.ps1'];
+  for (const name of scripts) await writeFile(join(root, 'scripts', name), name);
+  for (const name of ['Control-Setup.md', 'Control-Build-Status.md']) await writeFile(join(root, 'docs', name), name);
+  await writeFile(join(root, 'build/VTubeControl-0.9.zip'), 'stale');
+  await writeFile(join(root, 'build/unrelated.zip'), 'keep');
+  const bundle = await stageControlPackage(root, app, '1.0.1');
+  await assert.rejects(stat(app), {code: 'ENOENT'});
+  await assert.rejects(stat(join(root, 'build/VTubeControl-0.9.zip')), {code: 'ENOENT'});
+  assert.equal(await readFile(join(root, 'build/unrelated.zip'), 'utf8'), 'keep');
+  for (const [name, bytes] of Object.entries(payloads)) assert.deepEqual(await readFile(join(bundle, 'app', name)), bytes);
+  for (const name of scripts) assert.equal(await readFile(join(bundle, name), 'utf8'), name);
+  assert.equal(await readFile(join(bundle, 'SETUP.md'), 'utf8'), 'Control-Setup.md');
+  assert.equal(await readFile(join(bundle, 'BUILD-STATUS.md'), 'utf8'), 'Control-Build-Status.md');
+  const manifest = JSON.parse(await readFile(join(bundle, 'bundle.json')));
+  assert.equal(manifest.version, '1.0.1');
+  assert.deepEqual(manifest.roles, ['pantry', 'canada']);
+  assert.deepEqual(manifest.files.sort((a,b) => a.path.localeCompare(b.path)), Object.entries(payloads).map(([path, bytes]) => ({path, sha256: createHash('sha256').update(bytes).digest('hex')})).sort((a,b) => a.path.localeCompare(b.path)));
+});

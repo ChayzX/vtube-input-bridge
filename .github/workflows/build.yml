@@ -43,6 +43,11 @@ jobs:
     runs-on: [self-hosted, homelab-ci]
     permissions:
       contents: write
+    env:
+      # These caches belong to this job and can be discarded after their final consumer.
+      npm_config_cache: ${{ runner.temp }}/vtube-npm-cache
+      NUGET_PACKAGES: ${{ runner.temp }}/vtube-nuget-cache
+      electron_config_cache: ${{ runner.temp }}/vtube-electron-cache
     steps:
       - uses: actions/checkout@v4
       - name: Install Windows GNU cross linker
@@ -65,7 +70,7 @@ jobs:
           echo "$RUNNER_TEMP/pwsh" >> "$GITHUB_PATH"
       - name: Build optional control companion and plugin
         shell: bash
-        run: pwsh -NoProfile -File ./scripts/build-controls.ps1 ${{ inputs.artifacts_only && '-SkipTests' || '' }}
+        run: pwsh -NoProfile -File ./scripts/build-controls.ps1 -CiStorage ${{ inputs.artifacts_only && '-SkipTests' || '' }}
       - name: Attach installers to a draft preview release
         if: inputs.artifacts_only
         shell: bash
