@@ -43,13 +43,14 @@ jobs:
     runs-on: [self-hosted, homelab-ci]
     permissions:
       contents: write
-    env:
-      # These caches belong to this job and can be discarded after their final consumer.
-      npm_config_cache: ${{ runner.temp }}/vtube-npm-cache
-      NUGET_PACKAGES: ${{ runner.temp }}/vtube-nuget-cache
-      electron_config_cache: ${{ runner.temp }}/vtube-electron-cache
     steps:
       - uses: actions/checkout@v4
+      - name: Isolate disposable build download caches
+        shell: bash
+        run: |
+          echo "npm_config_cache=$RUNNER_TEMP/vtube-npm-cache" >> "$GITHUB_ENV"
+          echo "NUGET_PACKAGES=$RUNNER_TEMP/vtube-nuget-cache" >> "$GITHUB_ENV"
+          echo "electron_config_cache=$RUNNER_TEMP/vtube-electron-cache" >> "$GITHUB_ENV"
       - name: Install Windows GNU cross linker
         run: sudo apt-get update && sudo apt-get install -y gcc-mingw-w64-x86-64
       - uses: dtolnay/rust-toolchain@stable
