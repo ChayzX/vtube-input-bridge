@@ -45,6 +45,12 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
+      - name: Isolate disposable build download caches
+        shell: bash
+        run: |
+          echo "npm_config_cache=$RUNNER_TEMP/vtube-npm-cache" >> "$GITHUB_ENV"
+          echo "NUGET_PACKAGES=$RUNNER_TEMP/vtube-nuget-cache" >> "$GITHUB_ENV"
+          echo "electron_config_cache=$RUNNER_TEMP/vtube-electron-cache" >> "$GITHUB_ENV"
       - name: Install Windows GNU cross linker
         run: sudo apt-get update && sudo apt-get install -y gcc-mingw-w64-x86-64
       - uses: dtolnay/rust-toolchain@stable
@@ -65,7 +71,7 @@ jobs:
           echo "$RUNNER_TEMP/pwsh" >> "$GITHUB_PATH"
       - name: Build optional control companion and plugin
         shell: bash
-        run: pwsh -NoProfile -File ./scripts/build-controls.ps1 ${{ inputs.artifacts_only && '-SkipTests' || '' }}
+        run: pwsh -NoProfile -File ./scripts/build-controls.ps1 -CiStorage ${{ inputs.artifacts_only && '-SkipTests' || '' }}
       - name: Attach installers to a draft preview release
         if: inputs.artifacts_only
         shell: bash
